@@ -9,11 +9,16 @@
     The very first connect pops a "Allow USB debugging?" dialog on the TV.
     Accept it with the remote, then re-run this script.
 .EXAMPLE
-    .\scripts\03-sideload-firetv.ps1 -FireTvIp 192.168.1.42
+    .\scripts\03-sideload-firetv.ps1
+    Prompts for the IP address of your Fire TV Stick.
+.EXAMPLE
+    .\scripts\03-sideload-firetv.ps1 -FireTvIp <FIRE-TV-IP>
+    Pass the address directly if you already know it.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true,
+        HelpMessage = 'IP address of your Fire TV Stick, from Settings > My Fire TV > About > Network')]
     [string]$FireTvIp,
     [string]$ApkPath,
     [int]$Port = 5555,

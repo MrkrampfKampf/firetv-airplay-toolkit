@@ -8,7 +8,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ToolchainRoot = 'D:\android-toolchain'
+    [string]$ToolchainRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'toolchain')
 )
 
 $ErrorActionPreference = 'Stop'

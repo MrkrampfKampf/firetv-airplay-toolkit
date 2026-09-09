@@ -1,136 +1,263 @@
-# AirPlay-Empfänger für Fire TV Stick
+# firetv-airplay-toolkit
 
-> Deutsche Fassung. Die englische Hauptdokumentation steht in [README.md](README.md).
+**AirPlay auf dem Fire TV Stick zum Laufen bringen. Einfach den Schritten folgen.**
 
-Baut eine sideloadbare APK, die einen Fire TV Stick in einen vollwertigen
-AirPlay-2-Empfänger verwandelt: Screen Mirroring, Video, Audio.
+> Deutsche Fassung. Die englische Hauptanleitung steht in [README.md](README.md).
 
-## Was hier drin ist
+Den Bildschirm von iPhone, iPad oder Mac auf einen Fire TV Stick spiegeln, mit
+Bild und Ton. Ohne Apple TV, ohne Kauf-App, ohne Abo.
 
-| Pfad | Inhalt |
-|---|---|
-| `airplay-server/` | Git-Submodul mit dem Upstream-Code: [jqssun/android-airplay-server](https://github.com/jqssun/android-airplay-server), GPL-3.0 |
-| `scripts/00-get-prebuilt-apk.ps1` | Schneller Weg: fertige, vom Maintainer signierte APK holen |
-| `scripts/00a-get-adb.ps1` | Nur ADB, 8 MB, das Minimum fürs Sideloaden |
-| `scripts/01-setup-toolchain.ps1` | JDK 21 + Android SDK + NDK 27 + CMake nach `D:\android-toolchain` |
-| `scripts/02-build-apk.ps1` | Selbst bauen und signieren |
-| `scripts/03-sideload-firetv.ps1` | Per ADB auf den Stick installieren und starten |
-| `dist/` | Fertige APKs (wird angelegt) |
+Fire TV kann AirPlay von sich aus nicht. Diese Anleitung bringt einen quelloffenen
+AirPlay-2-Empfänger auf deinen Stick und dauert etwa zehn Minuten.
 
-## Warum dieses Projekt und keine Eigenentwicklung
+> [!IMPORTANT]
+> **Dieses Repository ist die Installationshilfe, nicht der Empfänger.** Die
+> eigentliche AirPlay-Arbeit macht
+> [jqssun/android-airplay-server](https://github.com/jqssun/android-airplay-server)
+> auf Basis von [UxPlay](https://github.com/FDH2/UxPlay). Beide stehen unter
+> GPL-3.0 und stammen von anderen Leuten. Von hier kommen die Windows-Skripte, die
+> Geräterecherche und diese Anleitung.
 
-AirPlay-Mirroring ist nicht frei implementierbar. Der Sender verlangt einen
-FairPlay-Handshake, dessen Schlüssel aus der Apple-TV-Firmware stammen. Die
-einzige funktionierende freie Umsetzung ist **UxPlay**, geschrieben in C.
+## Was du vorher brauchst
 
-Genau das nutzt dieses Projekt: UxPlay als natives Modul plus JNI-Brücke in eine
-Android-App. Deshalb braucht der Build das NDK und deshalb funktioniert es
-wirklich, statt nur die Geräteerkennung hinzubekommen.
+* Einen Fire TV Stick, siehe [Schritt 1](#schritt-1--prüfen-ob-dein-fire-tv-stick-mitmacht)
+* Einen Windows-10- oder -11-PC mit installiertem [Git](https://git-scm.com/download/win)
+* Fire TV Stick und Apple-Gerät im **selben WLAN**
+* Kein Gäste-WLAN, und AP-Isolation im Router ausgeschaltet
 
-## Gerätekompatibilität
+Der letzte Punkt ist der häufigste Stolperstein. Wenn sich Handy und Stick im Netz
+nicht sehen können, findet AirPlay nichts, ganz egal was installiert ist.
 
-Entscheidend sind drei Dinge: das API-Level (die App verlangt mindestens 24),
-die CPU-Architektur und ob überhaupt Android läuft.
+## Schritt 1 — Prüfen ob dein Fire TV Stick mitmacht
 
-| Modell | Kennung | Fire OS | API | ABI | Läuft? |
-|---|---|---|---|---|---|
-| Fire TV Stick HD, 2024 | AFTSS | Fire OS 7 (Android 9) | 28 | armeabi-v7a | ja |
-| Fire TV Stick Lite / 3. Gen, 2020 | AFTSSS / AFTKA | Fire OS 7 (Android 9) | 28 | armeabi-v7a | ja |
-| Fire TV Stick 4K, 2018 | AFTMM | Fire OS 6 (Android 7.1) | 25 | armeabi-v7a | ja |
-| Fire TV Stick 4K Max | AFTKMST12 | Fire OS 7/8 | 28/30 | arm64-v8a | ja |
-| Fire TV Stick 1. Gen, 2014 | AFTM | Fire OS 5 (Android 5.1) | 22 | armeabi-v7a | **nein**, unter minSdk 24 |
-| Fire TV Stick 2. Gen, 2016 | AFTT | Fire OS 5 (Android 5.1) | 22 | armeabi-v7a | **nein**, unter minSdk 24 |
-| Fire TV Stick 4K Select, 2025 | AFTCA002 | **Vega OS** | kein Android | – | **nein**, führt keine APKs aus |
+Such dein Modell in der Tabelle. Alles mit „ja" funktioniert.
 
-Der Fire TV Stick HD von 2024 ist der Zielfall hier: Android 9, 32-Bit, und
-H.264 sowie HEVC werden bis 1080p60 in Hardware dekodiert. Mit 1 GB RAM ist er
-allerdings knapp bestückt. Wenn das Bild ruckelt, in den App-Einstellungen auf
-720p oder 1080p30 heruntergehen.
+| Dein Fire TV Stick | Fire OS | Läuft |
+|---|---|:-:|
+| Fire TV Stick HD, 2024 | 7 | ja |
+| Fire TV Stick Lite, 2020 | 7 | ja |
+| Fire TV Stick 3. Generation, 2020 | 7 | ja |
+| Fire TV Stick 4K, 2018 | 6 | ja |
+| Fire TV Stick 4K Max | 7 oder 8 | ja |
+| Fire TV Cube, 2. oder 3. Generation | 7 oder 8 | ja |
+| Fire TV Stick 1. Generation, 2014 | 5 | nein |
+| Fire TV Stick 2. Generation, 2016 | 5 | nein |
+| Fire TV Stick 4K Select, 2025 | Vega OS | nein |
 
-Welches Gerät wirklich vorliegt, sagt der Stick selbst:
+Warum die drei nicht gehen:
+
+* Die **Sticks von 2014 und 2016** laufen mit Fire OS 5, also Android 5.1. Die App
+  braucht mindestens Android 7.0, die Installation scheitert deshalb sofort.
+* Der **Fire TV Stick 4K Select von 2025** läuft mit Amazons Vega OS. Das ist kein
+  Android und führt überhaupt keine Android-Apps aus. Dagegen hilft nichts.
+
+Bestätigt läuft es auf einem Fire TV Stick HD von 2024 mit Fire OS 7.
+
+Du weißt nicht, welches Modell du hast? Es steht unter `Einstellungen`, dann
+`Mein Fire TV`, dann `Info`.
+
+## Schritt 2 — ADB auf dem Fire TV Stick einschalten
+
+Am Fernseher, mit der Fernbedienung:
+
+1. `Einstellungen` öffnen
+2. Zu `Mein Fire TV` gehen
+3. `Entwickleroptionen` öffnen
+4. **ADB-Debugging** auf An stellen
+
+Fehlen die `Entwickleroptionen`, dann `Einstellungen`, `Mein Fire TV`, `Info`
+öffnen, den Gerätenamen markieren und sieben Mal die Auswahltaste drücken. Danach
+ist das Menü da.
+
+## Schritt 3 — Die IP-Adresse deines Fire TV Sticks finden
+
+Weiter am Fernseher:
+
+1. `Einstellungen` öffnen
+2. Zu `Mein Fire TV` gehen
+3. `Info` öffnen
+4. `Netzwerk` auswählen
+
+Notier dir die Angabe bei **IP-Adresse**. Sie besteht aus vier durch Punkte
+getrennten Zahlen. Du brauchst sie in Schritt 7.
+
+## Schritt 4 — Repository auf den PC holen
+
+PowerShell auf dem PC öffnen und ausführen:
 
 ```powershell
-adb -s 192.168.1.42:5555 shell getprop ro.product.model
-adb -s 192.168.1.42:5555 shell getprop ro.build.version.sdk
-adb -s 192.168.1.42:5555 shell getprop ro.product.cpu.abi
+git clone --recursive https://github.com/MrkrampfKampf/firetv-airplay-toolkit.git
 ```
 
-## Voraussetzungen
+```powershell
+cd firetv-airplay-toolkit
+```
 
-* Fire TV Stick und Apple-Gerät im **selben Subnetz**, kein Gäste-WLAN
-* AP-Isolation im Router aus, sonst scheitert die mDNS-Erkennung
-* Geklont wird mit Submodul: `git clone --recursive`, sonst bleibt `airplay-server/` leer
-* Auf dem Stick: `Einstellungen` → `Mein Fire TV` → `Entwickleroptionen` →
-  `ADB-Debugging` einschalten
-* IP des Sticks: `Einstellungen` → `Mein Fire TV` → `Info` → `Netzwerk`
+Das `--recursive` ist wichtig. Ohne bleibt der Ordner `airplay-server` leer.
 
-Zum Selbstbauen zusätzlich rund 12 GB Platz und ein Git, das schon installiert ist.
+## Schritt 5 — adb installieren
 
-## Weg A: fertige APK (Minuten)
+`adb` ist das Werkzeug, das über das Netzwerk mit dem Stick redet. Das hier lädt
+es herunter, etwa 8 MB, in einen Ordner `toolchain` im Repository:
+
+```powershell
+.\scripts\00a-get-adb.ps1
+```
+
+Es wird nichts systemweit installiert und nichts in der Registry verändert.
+
+## Schritt 6 — Die Empfänger-App herunterladen
 
 ```powershell
 .\scripts\00-get-prebuilt-apk.ps1
-.\scripts\03-sideload-firetv.ps1 -FireTvIp 192.168.1.42
 ```
 
-Die APK ist die Release-Binary des Maintainers, identisch zu der auf F-Droid.
-Sie enthält alle drei ABIs und läuft auf jeder Stick-Generation.
+Das holt die Veröffentlichung des Upstream-Entwicklers, dieselbe Fassung, die auch
+F-Droid ausliefert, und vergleicht deren SHA-256 mit dem Wert, den GitHub für die
+Datei angibt. Die App landet im Ordner `dist`.
 
-## Weg B: aus dem Quellcode bauen (Stunden)
+Lieber selbst kompilieren? Dann weiter beim
+[optionalen Abschnitt](#optional--die-app-selbst-bauen) und danach zurück zu
+Schritt 7.
+
+## Schritt 7 — Die App auf dem Fire TV Stick installieren
+
+```powershell
+.\scripts\03-sideload-firetv.ps1
+```
+
+Das Skript fragt nach der IP-Adresse aus Schritt 3. Eintippen, Enter drücken.
+
+**Jetzt auf den Fernseher schauen.** Beim ersten Verbinden erscheint dort eine
+Rückfrage, ob Debugging von deinem Computer erlaubt sein soll. Mit der
+Fernbedienung bestätigen. Wenn das Skript `unauthorized` meldet, wartet es genau
+darauf. Bestätigen und das Skript erneut starten.
+
+Danach zeigt das Skript, welches Gerät es gefunden hat, installiert die App und
+startet sie.
+
+## Schritt 8 — iPhone, iPad oder Mac spiegeln
+
+Die App läuft jetzt auf dem Fernseher und wartet.
+
+Auf **iPhone oder iPad**: Kontrollzentrum aufziehen, auf
+`Bildschirmsynchronisierung` tippen, den Empfänger aus der Liste wählen.
+
+Auf dem **Mac**: Kontrollzentrum in der Menüleiste öffnen, auf
+`Bildschirmsynchronisierung` klicken, den Empfänger wählen.
+
+Fertig. Dein Bildschirm erscheint auf dem Fernseher, mit Ton.
+
+Die App liegt außerdem auf dem Fire-TV-Startbildschirm bei deinen Apps. Beim
+nächsten Mal kannst du sie einfach von dort starten.
+
+## Optional — Die App selbst bauen
+
+Lohnt nur, wenn du einen eigenen Signaturschlüssel willst oder einen Build, den du
+Zeile für Zeile nachvollziehen kannst. Dabei wird eine komplette Android-Toolchain
+geladen, das dauert.
 
 ```powershell
 .\scripts\01-setup-toolchain.ps1 -AcceptSdkLicenses
-.\scripts\02-build-apk.ps1
-.\scripts\03-sideload-firetv.ps1 -FireTvIp 192.168.1.42
 ```
 
-Der erste Durchlauf kompiliert FFmpeg und OpenSSL nativ, das dauert 45 bis 120
-Minuten. Danach sind Rebuilds schnell. Standardmäßig werden nur `arm64-v8a` und
-`armeabi-v7a` gebaut, weil es keine x86-Fire-TVs gibt. Bei einem 32-Bit-Stick
-wie dem HD von 2024 reicht eine Architektur, das halbiert die Build-Zeit:
+```powershell
+.\scripts\02-build-apk.ps1
+```
+
+Danach normal mit Schritt 7 weitermachen.
+
+| | |
+|---|---|
+| Downloads | etwa 3 GB, nämlich JDK 21, Android SDK, NDK 27 und CMake |
+| Speicherplatz | etwa 12 GB |
+| Erster Build | 30 bis 120 Minuten, überwiegend FFmpeg und OpenSSL |
+| Späterer Build | wenige Minuten |
+
+Alles landet in einem Ordner `toolchain` im Repository. Wenn auf dem Systemlaufwerk
+wenig Platz ist, leg es woanders ab:
+
+```powershell
+.\scripts\01-setup-toolchain.ps1 -AcceptSdkLicenses -ToolchainRoot E:\android-toolchain
+```
+
+Der Schalter `-AcceptSdkLicenses` ist Absicht. Das Android SDK zu installieren
+bedeutet, [Googles SDK-Bedingungen](https://developer.android.com/studio/terms)
+zuzustimmen, und diese Zustimmung soll von dir kommen und nicht stillschweigend
+von einem Skript.
+
+Standardmäßig werden beide ARM-Architekturen gebaut. Nur eine zu nennen halbiert
+die Bauzeit etwa, und jeder Fire TV Stick bis zum 4K Max ist 32-Bit:
 
 ```powershell
 .\scripts\02-build-apk.ps1 -Abis armeabi-v7a
 ```
 
-Beim ersten Lauf entsteht ein eigener Signaturschlüssel unter `keystore\`.
-Der muss erhalten bleiben, sonst lässt sich die App später nicht mehr über die
-installierte Version aktualisieren.
+Beim ersten Build entsteht ein Signaturschlüssel im Ordner `keystore`. Behalte
+ihn. Android erlaubt das Aktualisieren einer installierten App nur bei gleicher
+Signatur, ohne den Schlüssel müsstest du vorher deinstallieren.
 
-## Benutzung auf dem Apple-Gerät
+## Was nicht funktioniert
 
-Nach dem Start lauscht die App auf dem Stick. Am iPhone oder iPad
-`Kontrollzentrum` → `Bildschirmsynchronisierung` öffnen und den Empfänger
-auswählen. Am Mac dasselbe über das Kontrollzentrum.
+* **Netflix, Disney+, die Apple-TV-App und andere DRM-Videos.** Sie verweigern die
+  Ausgabe an alles, was kein echtes Apple TV ist. Das entscheidet die sendende App,
+  es ist kein Fehler des Empfängers, und kein Empfänger von Dritten kann das
+  umgehen. Beim Spiegeln bleibt das Bild schwarz.
+* **Schnelle Spiele.** Spiegeln erzeugt merkliche Verzögerung. Für Video, Fotos,
+  Präsentationen und Surfen ist das kein Problem.
+* **Ruckelfreies 1080p60 auf Einstiegssticks.** Die haben 1 GB RAM und kaum
+  Reserven beim Dekodieren. Bei Rucklern in den App-Einstellungen Auflösung oder
+  Bildrate senken.
 
-## Grenzen
+## Wenn etwas nicht klappt
 
-* **DRM-Inhalte gehen nicht.** Netflix, Disney+ oder die Apple-TV-App
-  verweigern die Ausgabe. Das ist keine Lücke im Build, sondern Absicht des
-  Senders. Kein AirPlay-Empfänger außer einem echten Apple TV kann das.
-* Mirroring erzeugt Latenz. Für Videos und Fotos ist das egal, für schnelle
-  Spiele nicht.
-* Ältere Sticks dekodieren 1080p60 nur knapp. Im App-Menü lassen sich Auflösung
-  und Framerate senken.
-
-## Fehlersuche
-
-| Symptom | Ursache |
+| Was du siehst | Was zu tun ist |
 |---|---|
-| Empfänger taucht am iPhone nicht auf | anderes Subnetz, Gäste-WLAN oder AP-Isolation |
-| `adb devices` zeigt `unauthorized` | Dialog auf dem Fernseher mit der Fernbedienung bestätigen |
-| `adb devices` zeigt `offline` | Stick neu starten |
-| Installation scheitert mit Signaturfehler | vorher `adb uninstall io.github.jqssun.airplay` |
-| Bild ruckelt | Auflösung oder Framerate in den App-Einstellungen senken |
+| Der Empfänger erscheint nicht am iPhone | Beide Geräte ins selbe WLAN. Kein Gäste-WLAN. AP-Isolation im Router abschalten. |
+| Das Skript meldet `unauthorized` | Die Rückfrage am Fernseher mit der Fernbedienung bestätigen, dann Skript neu starten. |
+| Das Skript meldet `offline` | Stick neu starten über `Einstellungen`, `Mein Fire TV`, `Neu starten`. |
+| Installation scheitert mit Signaturfehler | Eine ältere Version mit anderem Schlüssel ist installiert. `adb uninstall io.github.jqssun.airplay` ausführen, dann neu installieren. |
+| `INSTALL_FAILED_OLDER_SDK` | Dein Stick läuft mit Fire OS 5. Siehe Schritt 1, dieses Modell kann die App nicht ausführen. |
+| Das Bild ruckelt oder reißt | In den App-Einstellungen am Fernseher Auflösung oder Bildrate senken. |
 
-Live-Log mitlesen:
+Mitlesen, was der Empfänger beim Spiegeln tut:
 
 ```powershell
-adb -s 192.168.1.42:5555 logcat -s AirPlay:V *:S
+adb logcat -s AirPlay:V *:S
 ```
+
+## Was die Skripte tun
+
+| Skript | Aufgabe |
+|---|---|
+| `00a-get-adb.ps1` | Lädt nur adb, etwa 8 MB, ohne systemweite Installation |
+| `00-get-prebuilt-apk.ps1` | Holt die Upstream-App und prüft deren Checksumme |
+| `01-setup-toolchain.ps1` | Installiert JDK 21, Android SDK, NDK 27 und CMake zum Bauen |
+| `02-build-apk.ps1` | Kompiliert die App und signiert sie mit einem erzeugten Schlüssel |
+| `03-sideload-firetv.ps1` | Verbindet sich mit dem Stick, installiert die App und startet sie |
+
+Jedes Skript lässt sich gefahrlos erneut ausführen. Vorhandene Downloads werden
+weiterverwendet, fertige Arbeit wird nicht wiederholt.
+
+## Danksagung
+
+* [UxPlay](https://github.com/FDH2/UxPlay) von FDH2 und Mitwirkenden, die AirPlay- und RAOP-Umsetzung
+* [android-airplay-server](https://github.com/jqssun/android-airplay-server) von jqssun, die Android-App und die JNI-Brücke
+* [FFmpeg](https://ffmpeg.org) für die verlustfreie Audiodekodierung
+* Modell- und API-Angaben aus [Amazons Fire-TV-Gerätespezifikationen](https://developer.amazon.com/docs/device-specs/device-specifications-fire-tv-streaming-media-player.html)
 
 ## Lizenz
 
-Der Quellcode unter `airplay-server/` steht unter GPL-3.0 und stammt nicht von
-mir. Die Skripte hier drumherum sind reine Build-Automatisierung. Wer die
-gebaute APK weitergibt, muss den Quellcode mitliefern.
+GPL-3.0, passend zu den Upstream-Projekten, die dieses Toolkit baut. Siehe
+[LICENSE](LICENSE).
+
+Der Ordner `airplay-server` ist ein Submodul, das auf den Upstream-Code unter
+dessen eigenem Urheberrecht zeigt. Er ist auf einen festen Commit gepinnt und
+nicht hierher kopiert, und dieses Repository liefert keine Binärdateien aus. Wer
+eine mit diesen Skripten gebaute App weitergibt, muss laut GPL-3.0 auch den
+zugehörigen Quellcode zugänglich machen.
+
+---
+
+Steht in keiner Verbindung zu Apple Inc. oder Amazon.com, Inc. AirPlay ist eine
+Marke von Apple Inc. Fire TV ist eine Marke von Amazon.com, Inc.

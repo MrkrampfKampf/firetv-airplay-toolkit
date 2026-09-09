@@ -3,15 +3,16 @@
 .SYNOPSIS
     Installs a self-contained Android build toolchain (JDK 21 + SDK + NDK 27 + CMake).
 .DESCRIPTION
-    Everything lands under -ToolchainRoot (default D:\android-toolchain) so the
-    system drive stays untouched. The NDK alone needs roughly 5 GB unpacked.
+    Everything lands under -ToolchainRoot, by default a "toolchain" folder next
+    to this repository. Point it at another drive if your system drive is tight.
+    The NDK alone needs roughly 5 GB unpacked.
 .NOTES
     Installing the Android SDK/NDK requires accepting Google's Android SDK
     licence terms. This script refuses to run until you pass -AcceptSdkLicenses.
 #>
 [CmdletBinding()]
 param(
-    [string]$ToolchainRoot = 'D:\android-toolchain',
+    [string]$ToolchainRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'toolchain'),
     [string]$NdkVersion    = '27.0.12077973',
     [string]$PlatformApi   = 'android-36',
     [string]$BuildToolsVer = '36.0.0',
