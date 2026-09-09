@@ -1,0 +1,4 @@
+[submodule "airplay-server"]
+	path = airplay-server
+	url = https://github.com/jqssun/android-airplay-server.git
+	shallow = true
