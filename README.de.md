@@ -213,6 +213,36 @@ Signatur, ohne den Schlüssel müsstest du vorher deinstallieren.
   Reserven beim Dekodieren. Bei Rucklern in den App-Einstellungen Auflösung oder
   Bildrate senken.
 
+## Was du stattdessen tun kannst, wenn eine App blockiert
+
+Spiegeln ist für geschütztes Video das falsche Werkzeug. Es gibt einen besseren
+Weg, und der liefert ein schärferes Bild als Spiegeln je könnte.
+
+**Installier die App des Anbieters direkt auf dem Fire TV.** Netflix, Disney+,
+Prime Video, YouTube und die meisten großen Sender haben Fire-TV-Apps im
+Amazon-Appstore. Der Stick spielt den Stream dann selbst ab, mit funktionierendem
+DRM, voller Auflösung und ohne die Verzögerung des Spiegelns. Such den Anbieter
+auf dem Fire-TV-Startbildschirm und installier ihn dort. Das Handy brauchst du nur
+noch zum Suchen und Tippen, über Amazons Fire-TV-Fernbedienungs-App.
+
+Das ist kein Trostpreis. Bei nativer Wiedergabe dekodiert der Stick den
+Originalstream, beim Spiegeln wird dein Handybildschirm neu kodiert und über WLAN
+geschoben. Die native App gewinnt bei der Qualität immer.
+
+**Für eine Website ohne Fire-TV-App** öffne die Seite im Silk Browser auf dem
+Stick selbst, den es im Amazon-Appstore gibt. Normales HTML5-Video läuft meist.
+Seiten mit DRM verweigern trotzdem oft, gehen auf niedrige Qualität herunter oder
+nicht in den Vollbildmodus, weil sie eine eigene App erwarten. Ein Versuch lohnt,
+eine Garantie ist es nicht.
+
+**Für Video ohne Kopierschutz** nimm den AirPlay-Knopf im Videoplayer statt der
+Bildschirmsynchronisierung. Dein Gerät übergibt dann nur die Adresse des Streams,
+und der Empfänger holt und dekodiert ihn selbst. Das ist schärfer als Spiegeln und
+belastet dein Handy kaum.
+
+**Für alles andere, was scheitert**, führ die Diagnose im nächsten Abschnitt aus.
+Sie unterscheidet einen geschützten Stream von einem echten Fehler.
+
 ## Wenn etwas nicht klappt
 
 | Was du siehst | Was zu tun ist |

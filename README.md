@@ -224,6 +224,35 @@ without it you would have to uninstall before you could update.
   little decoding headroom. If the picture stutters, lower the resolution or frame
   rate in the app's own settings.
 
+## What to do instead when an app is blocked
+
+Mirroring is the wrong tool for protected video. There is a better route, and it
+produces a sharper picture than mirroring ever could.
+
+**Install the service's own Fire TV app.** Netflix, Disney+, Prime Video, YouTube
+and most large broadcasters publish Fire TV apps in the Amazon Appstore. The stick
+then plays the stream natively, with proper DRM, full resolution and none of the
+mirroring delay. Search for the service on your Fire TV home screen and install it
+there. Use your phone only for searching and typing, through Amazon's Fire TV
+remote app.
+
+This is not a consolation prize. Native playback decodes the original stream on
+the stick, while mirroring re-encodes your phone screen and pushes it over Wi-Fi.
+The native app wins on quality every time.
+
+**For a website with no Fire TV app**, open the site in the Silk Browser on the
+stick itself, available in the Amazon Appstore. Ordinary HTML5 video usually
+plays. Sites that use DRM often still refuse, drop to low quality, or will not go
+fullscreen, because they expect a dedicated app. Worth trying, not a guarantee.
+
+**For video that is not protected**, use the AirPlay button inside the video
+player instead of screen mirroring. Your device then hands the stream address to
+the receiver, which fetches and decodes it directly. That is sharper than
+mirroring and barely loads your phone.
+
+**For anything else that fails**, run the diagnostic in the next section. It tells
+a protected stream apart from a real bug.
+
 ## If something goes wrong
 
 | What you see | What to do |
