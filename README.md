@@ -211,10 +211,13 @@ without it you would have to uninstall before you could update.
 
 ## What will not work
 
-* **Netflix, Disney+, the Apple TV app and other DRM video.** They refuse to send
-  a protected stream to anything that is not a genuine Apple TV. This is the
-  sending app's decision, not a flaw in the receiver, and no third-party receiver
-  can work around it. Mirroring such an app shows a black screen.
+* **Anything protected by DRM.** Netflix, Disney+, Prime Video, the Apple TV app,
+  and any website streaming through FairPlay or Widevine. The receiver contains no
+  DRM support of any kind. For mirroring it could not help anyway: your iPhone or
+  Mac blanks the protected video layer before it transmits, so those frames never
+  reach the TV. The restriction lives on the sending device, not here. Only a
+  genuine Apple TV can display them. Expect a black picture, often with the audio
+  still playing, or nothing at all.
 * **Fast games.** Mirroring adds noticeable delay. Fine for video, photos,
   presentations and browsing.
 * **Flawless 1080p60 on entry-level sticks.** They have 1 GB of RAM and very
@@ -231,6 +234,24 @@ without it you would have to uninstall before you could update.
 | The install fails mentioning signatures | An older build is installed with a different key. Run `adb uninstall io.github.jqssun.airplay` and install again. |
 | `INSTALL_FAILED_OLDER_SDK` | Your stick runs Fire OS 5. See step 1, this model cannot run the app. |
 | The picture stutters or tears | Lower the resolution or frame rate in the app's settings on the TV. |
+| A particular video will not play and you want to know why | Run the diagnostic below. |
+
+### Finding out why one video fails
+
+Some videos fail for reasons you can fix, others because they are protected. This
+tells you which:
+
+```powershell
+.\scripts\04-diagnose-playback.ps1 -Label the-site-name
+```
+
+It records the receiver while you reproduce the problem, then sorts what it found
+into protected content, a decoder that refused the stream, or a network failure.
+The full log is saved under `logs`, which is excluded from Git because it can
+contain the addresses you visited.
+
+If the diagnostic finds nothing at all, that is itself the answer: no frames
+arrived, which is what protected video looks like from the receiver's side.
 
 To watch what the receiver is doing while you mirror:
 
@@ -247,6 +268,7 @@ adb logcat -s AirPlay:V *:S
 | `01-setup-toolchain.ps1` | Installs JDK 21, the Android SDK, NDK 27 and CMake for building |
 | `02-build-apk.ps1` | Compiles the app and signs it with a key it creates for you |
 | `03-sideload-firetv.ps1` | Connects to your stick, installs the app and starts it |
+| `04-diagnose-playback.ps1` | Records the receiver while a video fails and explains the cause |
 
 You can re-run any of them safely. They reuse what is already downloaded and
 never redo finished work.

@@ -2,6 +2,7 @@
 toolchain-env.ps1
 toolchain/
 dist/
+logs/
 keystore/
 
 # upstream build artefacts inside the submodule

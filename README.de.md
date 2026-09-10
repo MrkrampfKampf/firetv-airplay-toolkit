@@ -199,10 +199,14 @@ Signatur, ohne den Schlüssel müsstest du vorher deinstallieren.
 
 ## Was nicht funktioniert
 
-* **Netflix, Disney+, die Apple-TV-App und andere DRM-Videos.** Sie verweigern die
-  Ausgabe an alles, was kein echtes Apple TV ist. Das entscheidet die sendende App,
-  es ist kein Fehler des Empfängers, und kein Empfänger von Dritten kann das
-  umgehen. Beim Spiegeln bleibt das Bild schwarz.
+* **Alles was durch DRM geschützt ist.** Netflix, Disney+, Prime Video, die
+  Apple-TV-App und jede Website, die über FairPlay oder Widevine ausliefert. Der
+  Empfänger enthält keinerlei DRM-Unterstützung. Beim Spiegeln würde sie auch
+  nichts nützen: iPhone und Mac schwärzen die geschützte Videoebene, bevor sie
+  überhaupt etwas senden, diese Bilder erreichen den Fernseher also nie. Die
+  Einschränkung sitzt im sendenden Gerät, nicht hier. Nur ein echtes Apple TV kann
+  solche Inhalte zeigen. Zu erwarten ist ein schwarzes Bild, oft mit weiterhin
+  hörbarem Ton, oder gar nichts.
 * **Schnelle Spiele.** Spiegeln erzeugt merkliche Verzögerung. Für Video, Fotos,
   Präsentationen und Surfen ist das kein Problem.
 * **Ruckelfreies 1080p60 auf Einstiegssticks.** Die haben 1 GB RAM und kaum
@@ -219,6 +223,24 @@ Signatur, ohne den Schlüssel müsstest du vorher deinstallieren.
 | Installation scheitert mit Signaturfehler | Eine ältere Version mit anderem Schlüssel ist installiert. `adb uninstall io.github.jqssun.airplay` ausführen, dann neu installieren. |
 | `INSTALL_FAILED_OLDER_SDK` | Dein Stick läuft mit Fire OS 5. Siehe Schritt 1, dieses Modell kann die App nicht ausführen. |
 | Das Bild ruckelt oder reißt | In den App-Einstellungen am Fernseher Auflösung oder Bildrate senken. |
+| Ein bestimmtes Video läuft nicht und du willst wissen warum | Die Diagnose unten ausführen. |
+
+### Herausfinden, warum ein Video nicht läuft
+
+Manche Videos scheitern an behebbaren Ursachen, andere daran, dass sie geschützt
+sind. Das hier sagt dir, welcher Fall vorliegt:
+
+```powershell
+.\scripts\04-diagnose-playback.ps1 -Label name-der-website
+```
+
+Das Skript zeichnet den Empfänger auf, während du das Problem nachstellst, und
+sortiert das Ergebnis nach geschütztem Inhalt, verweigerndem Decoder oder
+Netzwerkfehler. Das vollständige Protokoll liegt in `logs`, das von Git
+ausgeschlossen ist, weil darin die besuchten Adressen stehen können.
+
+Findet die Diagnose gar nichts, ist das schon die Antwort: es kamen keine Bilder
+an, und genau so sieht geschütztes Video aus der Sicht des Empfängers aus.
 
 Mitlesen, was der Empfänger beim Spiegeln tut:
 
@@ -235,6 +257,7 @@ adb logcat -s AirPlay:V *:S
 | `01-setup-toolchain.ps1` | Installiert JDK 21, Android SDK, NDK 27 und CMake zum Bauen |
 | `02-build-apk.ps1` | Kompiliert die App und signiert sie mit einem erzeugten Schlüssel |
 | `03-sideload-firetv.ps1` | Verbindet sich mit dem Stick, installiert die App und startet sie |
+| `04-diagnose-playback.ps1` | Zeichnet den Empfänger bei einem Fehler auf und nennt die Ursache |
 
 Jedes Skript lässt sich gefahrlos erneut ausführen. Vorhandene Downloads werden
 weiterverwendet, fertige Arbeit wird nicht wiederholt.
