@@ -159,6 +159,10 @@ pick the receiver from the list.
 On a **Mac**: open Control Center in the menu bar, click `Screen Mirroring`, pick
 the receiver.
 
+> [!WARNING]
+> Use `Screen Mirroring`, not the small AirPlay icon inside a video player. That
+> icon sends audio only to this receiver and you get sound with a black picture.
+
 That is it. Your screen appears on the TV, with sound.
 
 The app also shows up on your Fire TV home screen under your apps, so next time
@@ -245,10 +249,14 @@ stick itself, available in the Amazon Appstore. Ordinary HTML5 video usually
 plays. Sites that use DRM often still refuse, drop to low quality, or will not go
 fullscreen, because they expect a dedicated app. Worth trying, not a guarantee.
 
-**For video that is not protected**, use the AirPlay button inside the video
-player instead of screen mirroring. Your device then hands the stream address to
-the receiver, which fetches and decodes it directly. That is sharper than
-mirroring and barely loads your phone.
+**Do not use the AirPlay button inside a video player.** The receiver advertises
+screen mirroring but deliberately does not advertise the separate AirPlay video
+route. Its capability flags are `0x5A7FFEE6`, where bit 7 for screen mirroring is
+on and bit 0 for AirPlay video is off. Tapping AirPlay inside a player therefore
+makes your device fall back to sending audio only, and the TV shows a now-playing
+screen with no picture. Always start from Control Center and pick Screen
+Mirroring. YouTube is the one sender the receiver handles through a dedicated
+path.
 
 **For anything else that fails**, run the diagnostic in the next section. It tells
 a protected stream apart from a real bug.
@@ -263,6 +271,7 @@ a protected stream apart from a real bug.
 | The install fails mentioning signatures | An older build is installed with a different key. Run `adb uninstall io.github.jqssun.airplay` and install again. |
 | `INSTALL_FAILED_OLDER_SDK` | Your stick runs Fire OS 5. See step 1, this model cannot run the app. |
 | The picture stutters or tears | Lower the resolution or frame rate in the app's settings on the TV. |
+| Sound plays but there is no picture, and the TV shows a music player | You used the AirPlay button inside the app. Open Control Center and choose `Screen Mirroring` instead. |
 | A particular video will not play and you want to know why | Run the diagnostic below. |
 
 ### Finding out why one video fails

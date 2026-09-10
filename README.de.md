@@ -146,6 +146,11 @@ Auf **iPhone oder iPad**: Kontrollzentrum aufziehen, auf
 Auf dem **Mac**: Kontrollzentrum in der Menüleiste öffnen, auf
 `Bildschirmsynchronisierung` klicken, den Empfänger wählen.
 
+> [!WARNING]
+> Nimm `Bildschirmsynchronisierung`, nicht das kleine AirPlay-Symbol im
+> Videoplayer. Dieses Symbol überträgt an diesen Empfänger nur den Ton, du
+> bekommst also Klang bei schwarzem Bild.
+
 Fertig. Dein Bildschirm erscheint auf dem Fernseher, mit Ton.
 
 Die App liegt außerdem auf dem Fire-TV-Startbildschirm bei deinen Apps. Beim
@@ -235,10 +240,13 @@ Seiten mit DRM verweigern trotzdem oft, gehen auf niedrige Qualität herunter od
 nicht in den Vollbildmodus, weil sie eine eigene App erwarten. Ein Versuch lohnt,
 eine Garantie ist es nicht.
 
-**Für Video ohne Kopierschutz** nimm den AirPlay-Knopf im Videoplayer statt der
-Bildschirmsynchronisierung. Dein Gerät übergibt dann nur die Adresse des Streams,
-und der Empfänger holt und dekodiert ihn selbst. Das ist schärfer als Spiegeln und
-belastet dein Handy kaum.
+**Nimm nicht den AirPlay-Knopf im Videoplayer.** Der Empfänger meldet die
+Bildschirmspiegelung an, die separate AirPlay-Video-Route aber absichtlich nicht.
+Seine Fähigkeitsbits sind `0x5A7FFEE6`, darin ist Bit 7 für Spiegelung an und
+Bit 0 für AirPlay-Video aus. Wer im Player auf AirPlay tippt, bekommt deshalb nur
+den Ton übertragen, und am Fernseher erscheint eine Musikwiedergabe ohne Bild.
+Immer über das Kontrollzentrum gehen und Bildschirmsynchronisierung wählen.
+YouTube ist der einzige Sender, für den der Empfänger einen eigenen Weg hat.
 
 **Für alles andere, was scheitert**, führ die Diagnose im nächsten Abschnitt aus.
 Sie unterscheidet einen geschützten Stream von einem echten Fehler.
@@ -253,6 +261,7 @@ Sie unterscheidet einen geschützten Stream von einem echten Fehler.
 | Installation scheitert mit Signaturfehler | Eine ältere Version mit anderem Schlüssel ist installiert. `adb uninstall io.github.jqssun.airplay` ausführen, dann neu installieren. |
 | `INSTALL_FAILED_OLDER_SDK` | Dein Stick läuft mit Fire OS 5. Siehe Schritt 1, dieses Modell kann die App nicht ausführen. |
 | Das Bild ruckelt oder reißt | In den App-Einstellungen am Fernseher Auflösung oder Bildrate senken. |
+| Ton läuft, aber kein Bild, und der Fernseher zeigt eine Musikwiedergabe | Du hast den AirPlay-Knopf in der App benutzt. Stattdessen im Kontrollzentrum `Bildschirmsynchronisierung` wählen. |
 | Ein bestimmtes Video läuft nicht und du willst wissen warum | Die Diagnose unten ausführen. |
 
 ### Herausfinden, warum ein Video nicht läuft
