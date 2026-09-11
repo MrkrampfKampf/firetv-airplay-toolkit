@@ -93,7 +93,10 @@ if ($content.Contains($patched)) {
 }
 
 # ---------------------------------------------------------------- signing key
-function ConvertTo-JavaPropsPath { param([string]$Path) return $Path -replace '\', '\' }
+# Java .properties treats a backslash as an escape. Forward slashes work fine on
+# Windows, so normalise instead of doubling up, and keep the separator out of
+# this source entirely.
+function ConvertTo-JavaPropsPath { param([string]$Path) return $Path.Replace([char]92, '/') }
 
 $keystore = Join-Path $KeystoreDir 'firetv-sideload.p12'
 $pwFile   = Join-Path $KeystoreDir 'keystore-password.txt'
@@ -140,6 +143,15 @@ if ($BuildType -eq 'release') {
 # ---------------------------------------------------------------- the build
 $task = 'assembleRelease'
 if ($BuildType -eq 'debug') { $task = 'assembleDebug' }
+
+# Gradle, AGP and the NDK write sizeable scratch files, by default onto the system
+# drive. Keep them beside the toolchain so a nearly full C: cannot fail the build.
+# Scoped to this process only, the machine's own TEMP is untouched.
+$buildTemp = Join-Path (Split-Path -Parent $env:GRADLE_USER_HOME) 'build-temp'
+New-Item -ItemType Directory -Force -Path $buildTemp | Out-Null
+$env:TEMP = $buildTemp
+$env:TMP  = $buildTemp
+Write-Host "Scratch space: $buildTemp"
 
 Write-Step "Running Gradle: :app:$task"
 Write-Host '  first run also downloads Gradle 8.11.1 and the Compose/Hilt/media3 dependencies'

@@ -109,8 +109,21 @@ if (-not (Test-Path (Join-Path $ctLatest 'bin\sdkmanager.bat'))) {
 $sdkmanager = Join-Path $ctLatest 'bin\sdkmanager.bat'
 
 Write-Step 'Accepting Android SDK licences (you passed -AcceptSdkLicenses)'
-$answers = (,'y' * 80) -join "`r`n"
-$answers | & $sdkmanager "--sdk_root=$SdkRoot" --licenses
+# sdkmanager.bat is a wrapper that launches java, and a PowerShell pipeline does
+# not reach the prompts behind it: every answer is swallowed and all packages stay
+# unlicensed. Redirecting stdin from a file of answers does get through.
+$answerFile = Join-Path $Downloads 'licence-answers.txt'
+Set-Content -Path $answerFile -Value (@('y') * 200) -Encoding ascii
+$licenceLog = Join-Path $Downloads 'licence-output.txt'
+$licenceProc = Start-Process -FilePath $sdkmanager `
+    -ArgumentList "--sdk_root=$SdkRoot", '--licenses' `
+    -NoNewWindow -Wait -PassThru `
+    -RedirectStandardInput $answerFile -RedirectStandardOutput $licenceLog
+if ($licenceProc.ExitCode -ne 0) { throw "sdkmanager --licenses failed with exit code $($licenceProc.ExitCode). See $licenceLog" }
+
+$licenceDir = Join-Path $SdkRoot 'licenses'
+if (-not (Test-Path $licenceDir)) { throw "No licences were recorded in $licenceDir. See $licenceLog" }
+Write-Host "  recorded $(@(Get-ChildItem -Path $licenceDir -File).Count) licence file(s)"
 
 # -------------------------------------------------------------- SDK packages
 $packages = @(
@@ -125,10 +138,32 @@ Write-Host '  the NDK is the slow one (~2.5 GB download, ~5 GB unpacked)'
 & $sdkmanager "--sdk_root=$SdkRoot" --install $packages
 if ($LASTEXITCODE -ne 0) { throw "sdkmanager --install failed with exit code $LASTEXITCODE" }
 
+# sdkmanager exits 0 even when it installed nothing because a licence was missing,
+# so the only trustworthy check is whether the files landed on disk. Without this
+# the script cheerfully reports a ready toolchain over an empty SDK.
+$expected = [ordered]@{
+    'platform-tools'             = 'platform-tools/adb.exe'
+    "platforms;$PlatformApi"     = "platforms/$PlatformApi/android.jar"
+    "build-tools;$BuildToolsVer" = "build-tools/$BuildToolsVer/aapt2.exe"
+    "ndk;$NdkVersion"            = "ndk/$NdkVersion/source.properties"
+    "cmake;$CmakeVersion"        = "cmake/$CmakeVersion/bin/cmake.exe"
+}
+$missing = @()
+foreach ($pkg in $expected.Keys) {
+    if (-not (Test-Path (Join-Path $SdkRoot $expected[$pkg]))) { $missing += $pkg }
+}
+if ($missing.Count -gt 0) {
+    throw "Not installed: $($missing -join ', '). An unaccepted licence is the usual cause."
+}
+Write-Host '  all packages verified on disk'
+
 # ------------------------------------------------------ wire up the project
 Write-Step 'Writing local.properties and toolchain-env.ps1'
 
-function ConvertTo-JavaPropsPath { param([string]$Path) return $Path -replace '\', '\' }
+# Java .properties treats a backslash as an escape. Forward slashes work fine on
+# Windows, so normalise instead of doubling up, and keep the separator out of
+# this source entirely.
+function ConvertTo-JavaPropsPath { param([string]$Path) return $Path.Replace([char]92, '/') }
 
 $localProps = Join-Path $RepoRoot 'local.properties'
 $sdkLine    = 'sdk.dir=' + (ConvertTo-JavaPropsPath $SdkRoot)
