@@ -1,9 +1,9 @@
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt
 new file mode 100644
-index 0000000..10cf510
+index 0000000..0cd5e71
 --- /dev/null
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt
-@@ -0,0 +1,361 @@
+@@ -0,0 +1,379 @@
 +package io.github.jqssun.airplay.ui
 +
 +import android.graphics.Bitmap
@@ -321,15 +321,33 @@ index 0000000..10cf510
 +
 +/* ------------------------------------------------------------------ cover ground */
 +
-+/** Cheap softening: shrink far down, then let the upscale blur it. */
++/**
++ * Softening without a blur API.
++ *
++ * Shrinking to a few dozen pixels and letting the display scale it back up looks
++ * like a blur only at modest ratios. Blown up forty times to fill a 1080p screen
++ * it turns into visible blocks, because one bilinear step cannot invent the
++ * gradient between two distant samples. Scaling back up in repeated filtered
++ * doublings does: each pass averages its neighbours, and three or four passes
++ * approximate a Gaussian closely enough that nothing reads as a square. The
++ * intermediate bitmaps are tiny, so the whole chain costs well under a
++ * millisecond and happens once per track.
++ */
 +@Composable
 +private fun rememberSoftened(source: Bitmap?): ImageBitmap? = remember(source) {
 +    val src = source ?: return@remember null
 +    runCatching {
-+        val width = 48
-+        val height = (src.height.toFloat() / src.width.toFloat() * width)
-+            .roundToInt().coerceAtLeast(1)
-+        Bitmap.createScaledBitmap(src, width, height, true).asImageBitmap()
++        val ratio = src.height.toFloat() / src.width.toFloat()
++        fun scaled(width: Int, from: Bitmap): Bitmap {
++            val height = (ratio * width).roundToInt().coerceAtLeast(1)
++            return Bitmap.createScaledBitmap(from, width, height, true)
++        }
++        // down to almost nothing, then back up in filtered steps
++        var bmp = scaled(26, src)
++        for (width in intArrayOf(52, 104, 208, 416)) {
++            bmp = scaled(width, bmp)
++        }
++        bmp.asImageBitmap()
 +    }.getOrNull()
 +}
 +
@@ -382,11 +400,263 @@ index 2ea7a0d..3c225d3 100644
                  Text(stringResource(R.string.btn_clear))
              }
          }
+diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt
+new file mode 100644
+index 0000000..9579b9b
+--- /dev/null
++++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt
+@@ -0,0 +1,246 @@
++package io.github.jqssun.airplay.ui
++
++import android.util.Log
++import io.github.jqssun.airplay.audio.TrackInfo
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import org.json.JSONArray
++import org.json.JSONObject
++import java.io.BufferedReader
++import java.net.HttpURLConnection
++import java.net.URL
++import java.net.URLEncoder
++
++/**
++ * Song lyrics for the now-playing screen.
++ *
++ * AirPlay does not carry them. The sender's metadata has a title, an artist, an
++ * album and a duration and nothing else, so the words have to come from somewhere
++ * off the device. This asks LRCLIB, a free community lyrics database that needs no
++ * account and no key, and prefers its timed format so lines can be lit as they are
++ * sung.
++ *
++ * When lyrics are on, the track title and artist leave the network. Nothing else
++ * goes with them, no identifier and no account, but it is still a request to a
++ * third party about what someone is listening to, which is why it is a setting
++ * rather than an assumption.
++ *
++ * Nothing here invents words. A song with no entry shows as having none.
++ */
++
++data class LyricLine(val atMs: Long, val text: String)
++
++sealed interface Lyrics {
++    data object Loading : Lyrics
++    data object Missing : Lyrics
++
++    /** Timed lines, ready to follow along with. */
++    data class Timed(val lines: List<LyricLine>) : Lyrics
++
++    /** Words with no timing: still worth showing, just not highlighted. */
++    data class Plain(val lines: List<String>) : Lyrics
++}
++
++object LyricsSource {
++
++    private const val TAG = "Lyrics"
++    private const val BASE = "https://lrclib.net/api"
++
++    // LRCLIB asks callers to identify themselves rather than hide.
++    private const val AGENT =
++        "firetv-airplay-toolkit (https://github.com/MrkrampfKampf/firetv-airplay-toolkit)"
++
++    suspend fun fetch(track: TrackInfo): Lyrics = withContext(Dispatchers.IO) {
++        if (track.title.isBlank() || track.artist.isBlank()) return@withContext Lyrics.Missing
++        runCatching {
++            // Most misses are the query, not the database. Senders report titles
++            // like "Song (feat. X) - Remastered 2011" and artists like "A, B & C",
++            // neither of which is how the words were filed. Try the track as
++            // reported, then progressively plainer forms of it.
++            val plain = track.copy(
++                title = plainTitle(track.title),
++                artist = leadArtist(track.artist),
++            )
++            exact(track)
++                ?: exact(plain)
++                ?: exact(plain.copy(album = ""))
++                ?: search(plain)
++                ?: search(plain.copy(artist = track.artist))
++                ?: Lyrics.Missing
++        }.getOrElse {
++            Log.w(TAG, "lookup failed for ${track.artist} - ${track.title}", it)
++            Lyrics.Missing
++        }
++    }
++
++    /**
++     * Strips what stores and senders append but catalogues do not: featured
++     * artists, remaster and edit notes, explicit markers. A bracket is only
++     * dropped when its contents look like an annotation, so a title that genuinely
++     * contains one survives.
++     */
++    private val NOISE = Regex(
++        """[(\[]\s*(?:feat\.?|ft\.?|featuring|with|remaster(?:ed)?|re-?master|deluxe|explicit|""" +
++            """clean|radio edit|single version|album version|bonus track|mono|stereo|""" +
++            """\d{4}\s+(?:remaster(?:ed)?|version))(?:\s[^)\]]*)?[)\]]""",
++        RegexOption.IGNORE_CASE,
++    )
++
++    private val TRAILING = Regex(
++        """\s+[-–]\s+(?:\d{4}\s+)?(?:remaster(?:ed)?|re-?master|radio edit|single version|""" +
++            """album version|live|mono|stereo|extended(?:\s+mix)?|deluxe)\b.*$""",
++        RegexOption.IGNORE_CASE,
++    )
++
++    private val DOUBLE_SPACE = Regex("""\s{2,}""")
++
++    fun plainTitle(title: String): String =
++        title.replace(NOISE, " ")
++            .replace(TRAILING, "")
++            .replace(DOUBLE_SPACE, " ")
++            .trim()
++            .ifBlank { title.trim() }
++
++    /**
++     * "A, B & C" and "A feat. B" are filed under A.
++     *
++     * Word separators require surrounding whitespace on purpose. Without it the
++     * "x" used between collaborators also splits Maxwell.
++     */
++    private val ARTIST_SPLIT = Regex(
++        """\s*[,;/&]\s*|\s+(?:feat\.?|ft\.?|featuring|with|x|vs\.?)\s+""",
++        RegexOption.IGNORE_CASE,
++    )
++
++    fun leadArtist(artist: String): String =
++        ARTIST_SPLIT.split(artist).firstOrNull { it.isNotBlank() }?.trim()
++            ?: artist.trim()
++
++    /** The precise endpoint: matches on all four fields, so it is right or nothing. */
++    private fun exact(track: TrackInfo): Lyrics? {
++        val url = buildString {
++            append(BASE).append("/get")
++            append("?artist_name=").append(enc(track.artist))
++            append("&track_name=").append(enc(track.title))
++            if (track.album.isNotBlank()) append("&album_name=").append(enc(track.album))
++            if (track.durationMs > 0) append("&duration=").append(track.durationMs / 1000)
++        }
++        val body = get(url) ?: return null
++        return parse(JSONObject(body))
++    }
++
++    /**
++     * The fallback. Senders often report a different album, or none, and the exact
++     * endpoint then returns nothing at all. Search on artist and title and, when a
++     * duration is known, keep the candidate closest to it, since that is what
++     * separates a single from an eight minute live version.
++     */
++    private fun search(track: TrackInfo): Lyrics? {
++        val url = "$BASE/search?artist_name=${enc(track.artist)}&track_name=${enc(track.title)}"
++        val body = get(url) ?: return null
++        val results = JSONArray(body)
++        if (results.length() == 0) return null
++
++        var best: JSONObject? = null
++        var bestGap = Long.MAX_VALUE
++        val wantSeconds = track.durationMs / 1000
++        for (i in 0 until results.length()) {
++            val candidate = results.optJSONObject(i) ?: continue
++            val hasWords = candidate.optString("syncedLyrics").isNotBlank() ||
++                candidate.optString("plainLyrics").isNotBlank()
++            if (!hasWords) continue
++            val gap = if (wantSeconds > 0) {
++                kotlin.math.abs(candidate.optLong("duration") - wantSeconds)
++            } else {
++                0L
++            }
++            if (gap < bestGap) {
++                bestGap = gap
++                best = candidate
++            }
++        }
++        // A minute out is a different recording, not a near miss.
++        if (best == null || (wantSeconds > 0 && bestGap > 60)) return null
++        return parse(best)
++    }
++
++    private fun parse(node: JSONObject): Lyrics? {
++        val synced = node.optString("syncedLyrics")
++        if (synced.isNotBlank()) {
++            val lines = parseLrc(synced)
++            if (lines.isNotEmpty()) return Lyrics.Timed(lines)
++        }
++        val plain = node.optString("plainLyrics")
++        if (plain.isNotBlank()) {
++            val lines = plain.lines().map { it.trim() }.filter { it.isNotEmpty() }
++            if (lines.isNotEmpty()) return Lyrics.Plain(lines)
++        }
++        return null
++    }
++
++    /**
++     * LRC: each line is one or more timestamps followed by text. A line can carry
++     * several timestamps when the same words recur, and empty text marks an
++     * instrumental gap, which is worth keeping so the highlight has somewhere to
++     * rest between verses.
++     */
++    private val STAMP = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
++
++    fun parseLrc(raw: String): List<LyricLine> {
++        val out = mutableListOf<LyricLine>()
++        for (line in raw.lines()) {
++            val stamps = STAMP.findAll(line).toList()
++            if (stamps.isEmpty()) continue
++            val text = line.substring(stamps.last().range.last + 1).trim()
++            for (stamp in stamps) {
++                val minutes = stamp.groupValues[1].toLongOrNull() ?: continue
++                val seconds = stamp.groupValues[2].toLongOrNull() ?: continue
++                val fraction = stamp.groupValues[3]
++                val millis = when (fraction.length) {
++                    0 -> 0L
++                    1 -> fraction.toLong() * 100
++                    2 -> fraction.toLong() * 10
++                    else -> fraction.take(3).toLong()
++                }
++                out += LyricLine(minutes * 60_000 + seconds * 1_000 + millis, text)
++            }
++        }
++        return out.sortedBy { it.atMs }
++    }
++
++    /** Which line is being sung right now, or -1 before the first one starts. */
++    fun activeIndex(lines: List<LyricLine>, positionMs: Long): Int {
++        if (lines.isEmpty()) return -1
++        var low = 0
++        var high = lines.lastIndex
++        var found = -1
++        while (low <= high) {
++            val mid = (low + high) / 2
++            if (lines[mid].atMs <= positionMs) {
++                found = mid
++                low = mid + 1
++            } else {
++                high = mid - 1
++            }
++        }
++        return found
++    }
++
++    private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
++
++    private fun get(url: String): String? {
++        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
++            requestMethod = "GET"
++            setRequestProperty("User-Agent", AGENT)
++            setRequestProperty("Accept", "application/json")
++            connectTimeout = 6000
++            readTimeout = 6000
++        }
++        return try {
++            if (conn.responseCode !in 200..299) return null
++            conn.inputStream.bufferedReader().use(BufferedReader::readText)
++        } finally {
++            conn.disconnect()
++        }
++    }
++}
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-index 81e662d..856e29d 100644
+index 81e662d..432d425 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-@@ -75,6 +75,17 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
+@@ -75,6 +75,21 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
  import androidx.media3.ui.compose.material3.indicator.ProgressSlider
  import kotlin.math.abs
  import kotlinx.coroutines.delay
@@ -401,10 +671,14 @@ index 81e662d..856e29d 100644
 +import androidx.compose.animation.core.tween
 +import androidx.compose.foundation.border
 +import androidx.compose.ui.unit.sp
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.lazy.rememberLazyListState
  
  private enum class Tab(val labelRes: Int, val icon: ImageVector) {
      OVERVIEW(R.string.tab_overview, Icons.Default.Cast),
-@@ -510,33 +521,46 @@ fun MainScreen(
+@@ -510,33 +525,46 @@ fun MainScreen(
              onPip = onPip
          )
      } else {
@@ -465,7 +739,7 @@ index 81e662d..856e29d 100644
              }
          }
      }
-@@ -604,17 +628,43 @@ private fun OverviewContent(
+@@ -604,17 +632,43 @@ private fun OverviewContent(
          if (tv) startFocus.requestFocus()
      }
  
@@ -515,7 +789,7 @@ index 81e662d..856e29d 100644
              val connecting = state == ServerState.RUNNING && connections > 0 &&
                  !mirroringActive && !videoPlaybackActive
              if (showAudioMode && state == ServerState.RUNNING && connections > 0) {
-@@ -628,8 +678,8 @@ private fun OverviewContent(
+@@ -628,8 +682,8 @@ private fun OverviewContent(
                          Icon(
                              imageVector = if (connections > 0) Icons.Default.CastConnected else Icons.Default.Cast,
                              contentDescription = null,
@@ -526,7 +800,7 @@ index 81e662d..856e29d 100644
                          )
                          Spacer(Modifier.height(12.dp))
                          Text(
-@@ -637,9 +687,11 @@ private fun OverviewContent(
+@@ -637,9 +691,11 @@ private fun OverviewContent(
                                  ServerState.STOPPED -> stringResource(R.string.server_stopped)
                                  ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
                                  ServerState.ERROR -> stringResource(R.string.error_starting_server)
@@ -541,7 +815,7 @@ index 81e662d..856e29d 100644
                          )
                      }
                  } else if (connecting) {
-@@ -651,13 +703,13 @@ private fun OverviewContent(
+@@ -651,13 +707,13 @@ private fun OverviewContent(
                  }
                  if (state == ServerState.RUNNING && mirroringActive) {
                      Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
@@ -557,7 +831,7 @@ index 81e662d..856e29d 100644
                              Icon(
                                  Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
                                  tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-@@ -689,64 +741,21 @@ private fun OverviewContent(
+@@ -689,64 +745,21 @@ private fun OverviewContent(
                      )
                  }
              }
@@ -634,7 +908,7 @@ index 81e662d..856e29d 100644
      }
  }
  
-@@ -782,13 +791,13 @@ private fun FullscreenVideo(
+@@ -782,13 +795,13 @@ private fun FullscreenVideo(
              modifier = Modifier.align(Alignment.TopEnd)
          ) {
              Row(modifier = Modifier.padding(8.dp)) {
@@ -650,51 +924,388 @@ index 81e662d..856e29d 100644
                      Icon(
                          Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
                          tint = Color.White.copy(alpha = 0.7f)
-@@ -880,8 +889,7 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
-                 .weight(1f, fill = false)
-                 .aspectRatio(1f)
-                 .fillMaxWidth(0.7f)
+@@ -866,128 +879,282 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
+ @AndroidxOptIn(UnstableApi::class)
+ private fun NowPlayingContent(viewModel: MainViewModel) {
+     val track by viewModel.trackInfo.collectAsState()
++    val player = viewModel.dacpPlayer
+ 
+-    Column(
++    // Words come from off the device, so they arrive after the track does.
++    var lyrics by remember { mutableStateOf<Lyrics>(Lyrics.Missing) }
++    LaunchedEffect(track.title, track.artist, track.album) {
++        if (track.title.isBlank()) {
++            lyrics = Lyrics.Missing
++        } else {
++            lyrics = Lyrics.Loading
++            lyrics = LyricsSource.fetch(track)
++        }
++    }
++
++    // The player owns the clock; poll it rather than keeping a second one.
++    var positionMs by remember { mutableStateOf(0L) }
++    LaunchedEffect(player) {
++        while (player != null) {
++            positionMs = player.currentPosition
++            delay(200)
++        }
++    }
++
++    BoxWithConstraints(
+         modifier = Modifier
+             .fillMaxSize()
+-            .padding(24.dp),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.Center
++            .padding(horizontal = 44.dp, vertical = 30.dp)
+     ) {
+-        // cover art
+-        Box(
+-            modifier = Modifier
+-                .weight(1f, fill = false)
+-                .aspectRatio(1f)
+-                .fillMaxWidth(0.7f)
 -                .clip(RoundedCornerShape(16.dp))
 -                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-+                .coverTile(RoundedCornerShape(22.dp)),
-             contentAlignment = Alignment.Center
-         ) {
-             if (track.coverArt != null) {
-@@ -954,13 +962,13 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
-                     onBegin = { viewModel.audioScanBegin(false) },
-                     onEnd = { viewModel.audioScanEnd() }
+-            contentAlignment = Alignment.Center
+-        ) {
+-            if (track.coverArt != null) {
+-                Image(
+-                    bitmap = track.coverArt!!.asImageBitmap(),
+-                    contentDescription = stringResource(R.string.cd_cover_art),
+-                    modifier = Modifier.fillMaxSize(),
+-                    contentScale = ContentScale.Crop
+-                )
+-            } else {
+-                Icon(
+-                    Icons.Default.MusicNote,
+-                    contentDescription = null,
+-                    modifier = Modifier.size(64.dp),
+-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
++        // Size the sleeve off both axes. Squeezing a square into a 16:9 column by
++        // width alone is what cut the artwork in half.
++        val coverSide = minOf(maxWidth * 0.27f, maxHeight * 0.54f)
++
++        Row(modifier = Modifier.fillMaxSize()) {
++
++            Column(modifier = Modifier.weight(0.44f)) {
++                Box(
++                    modifier = Modifier
++                        .size(coverSide)
++                        .coverTile(RoundedCornerShape(20.dp)),
++                    contentAlignment = Alignment.Center
++                ) {
++                    if (track.coverArt != null) {
++                        Image(
++                            bitmap = track.coverArt!!.asImageBitmap(),
++                            contentDescription = stringResource(R.string.cd_cover_art),
++                            modifier = Modifier.fillMaxSize(),
++                            contentScale = ContentScale.Crop
++                        )
++                    } else {
++                        Icon(
++                            Icons.Default.MusicNote,
++                            contentDescription = null,
++                            modifier = Modifier.size(56.dp),
++                            tint = Aero.Sky.copy(alpha = 0.34f)
++                        )
++                    }
++                }
++
++                Spacer(Modifier.height(22.dp))
++
++                Text(
++                    text = track.title.ifEmpty { stringResource(R.string.unknown_track) },
++                    fontFamily = Aero.Display,
++                    fontSize = 34.sp,
++                    color = Aero.Ink,
++                    maxLines = 2,
++                    overflow = TextOverflow.Ellipsis
                  )
++                if (track.artist.isNotEmpty()) {
++                    Spacer(Modifier.height(4.dp))
++                    Text(
++                        text = track.artist,
++                        fontFamily = Aero.Display,
++                        fontSize = 21.sp,
++                        color = Aero.InkDim,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis
++                    )
++                }
++                if (track.album.isNotEmpty()) {
++                    Spacer(Modifier.height(6.dp))
++                    Text(
++                        text = track.album.uppercase(),
++                        fontFamily = Aero.Readout,
++                        fontSize = 13.sp,
++                        letterSpacing = 2.2.sp,
++                        color = Aero.InkDim.copy(alpha = 0.62f),
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis
++                    )
++                }
++
++                Spacer(Modifier.weight(1f))
++
++                if (player != null) {
++                    Row(
++                        modifier = Modifier.fillMaxWidth(),
++                        verticalAlignment = Alignment.CenterVertically
++                    ) {
++                        PositionText(player, Modifier.padding(end = 10.dp))
++                        Box(modifier = Modifier.weight(1f)) { ProgressSlider(player) }
++                        DurationText(player, Modifier.padding(start = 10.dp))
++                    }
++
++                    Spacer(Modifier.height(10.dp))
++
++                    Row(
++                        horizontalArrangement = Arrangement.spacedBy(4.dp),
++                        verticalAlignment = Alignment.CenterVertically
++                    ) {
++                        HoldScanButton(
++                            icon = Icons.Default.FastRewind,
++                            contentDescription = stringResource(R.string.cd_rewind),
++                            onBegin = { viewModel.audioScanBegin(false) },
++                            onEnd = { viewModel.audioScanEnd() }
++                        )
++                        PreviousButton(player, modifier = Modifier.aeroFocus(CircleShape))
++                        PlayPauseButton(
++                            player,
++                            modifier = Modifier.size(62.dp).aeroFocus(CircleShape),
++                            iconSize = 38.dp
++                        )
++                        NextButton(player, modifier = Modifier.aeroFocus(CircleShape))
++                        HoldScanButton(
++                            icon = Icons.Default.FastForward,
++                            contentDescription = stringResource(R.string.cd_fast_forward),
++                            onBegin = { viewModel.audioScanBegin(true) },
++                            onEnd = { viewModel.audioScanEnd() }
++                        )
++                        Spacer(Modifier.width(10.dp))
++                        IconButton(
++                            onClick = { viewModel.audioVolumeDown() },
++                            modifier = Modifier.aeroFocus(CircleShape)
++                        ) {
++                            Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
++                        }
++                        IconButton(
++                            onClick = { viewModel.audioMuteToggle() },
++                            modifier = Modifier.aeroFocus(CircleShape)
++                        ) {
++                            Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
++                        }
++                        IconButton(
++                            onClick = { viewModel.audioVolumeUp() },
++                            modifier = Modifier.aeroFocus(CircleShape)
++                        ) {
++                            Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
++                        }
++                    }
++                }
+             }
+-        }
+ 
+-        Spacer(Modifier.height(20.dp))
++            Spacer(Modifier.width(40.dp))
+ 
+-        // track info
+-        Text(
+-            text = track.title.ifEmpty { stringResource(R.string.unknown_track) },
+-            style = MaterialTheme.typography.titleMedium,
+-            fontWeight = FontWeight.SemiBold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis
+-        )
+-        if (track.artist.isNotEmpty()) {
+-            Text(
+-                text = track.artist,
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                maxLines = 1,
+-                overflow = TextOverflow.Ellipsis
++            LyricsPanel(
++                lyrics = lyrics,
++                positionMs = positionMs,
++                modifier = Modifier
++                    .weight(0.56f)
++                    .fillMaxHeight()
+             )
+         }
+-        if (track.album.isNotEmpty()) {
++    }
++}
++
++/**
++ * The words, following the music.
++ *
++ * The sung line is bright and set large; everything else recedes by opacity alone,
++ * with no rules, boxes or scrollbars, so the eye lands on the right line without
++ * being told where to look. Nothing here is generated: a track with no entry in the
++ * database says so plainly rather than inventing something plausible.
++ */
++@Composable
++private fun LyricsPanel(lyrics: Lyrics, positionMs: Long, modifier: Modifier = Modifier) {
++    Column(modifier = modifier) {
++        Row(verticalAlignment = Alignment.CenterVertically) {
+             Text(
+-                text = track.album,
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+-                maxLines = 1,
+-                overflow = TextOverflow.Ellipsis
++                text = stringResource(R.string.lyrics_title).uppercase(),
++                fontFamily = Aero.Readout,
++                fontSize = 13.sp,
++                letterSpacing = 3.sp,
++                color = Aero.Cyan.copy(alpha = 0.85f)
+             )
+-        }
+-
+-        Spacer(Modifier.height(16.dp))
+-
+-        val player = viewModel.dacpPlayer
+-        if (player != null) {
+-            // BottomControls' default row, minus its video-overlay gradient
+-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+-                PositionText(player, Modifier.padding(end = 8.dp))
+-                Box(modifier = Modifier.weight(1f)) { ProgressSlider(player) }
+-                DurationText(player, Modifier.padding(start = 8.dp))
++            if (lyrics is Lyrics.Timed || lyrics is Lyrics.Plain) {
++                Spacer(Modifier.width(12.dp))
++                Text(
++                    text = stringResource(R.string.lyrics_source),
++                    fontFamily = Aero.Readout,
++                    fontSize = 12.sp,
++                    letterSpacing = 1.sp,
++                    color = Aero.InkDim.copy(alpha = 0.40f)
++                )
+             }
++        }
++        Spacer(Modifier.height(14.dp))
+ 
+-            Spacer(Modifier.height(8.dp))
++        when (lyrics) {
++            is Lyrics.Loading -> LyricsNote(stringResource(R.string.lyrics_loading))
++            is Lyrics.Missing -> LyricsNote(stringResource(R.string.lyrics_none))
+ 
+-            Row(
+-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+-                verticalAlignment = Alignment.CenterVertically,
+-                modifier = Modifier.fillMaxWidth()
+-            ) {
+-                HoldScanButton(
+-                    icon = Icons.Default.FastRewind,
+-                    contentDescription = stringResource(R.string.cd_rewind),
+-                    onBegin = { viewModel.audioScanBegin(false) },
+-                    onEnd = { viewModel.audioScanEnd() }
+-                )
 -                PreviousButton(player, modifier = Modifier.dpadFocus())
-+                PreviousButton(player, modifier = Modifier.aeroFocus())
-                 PlayPauseButton(
-                     player,
+-                PlayPauseButton(
+-                    player,
 -                    modifier = Modifier.size(63.dp).dpadFocus(CircleShape),
-+                    modifier = Modifier.size(63.dp).aeroFocus(CircleShape),
-                     iconSize = 40.dp
-                 )
+-                    iconSize = 40.dp
+-                )
 -                NextButton(player, modifier = Modifier.dpadFocus())
-+                NextButton(player, modifier = Modifier.aeroFocus())
-                 HoldScanButton(
-                     icon = Icons.Default.FastForward,
-                     contentDescription = stringResource(R.string.cd_fast_forward),
-@@ -974,13 +982,13 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
-                 verticalAlignment = Alignment.CenterVertically,
-                 modifier = Modifier.fillMaxWidth()
-             ) {
+-                HoldScanButton(
+-                    icon = Icons.Default.FastForward,
+-                    contentDescription = stringResource(R.string.cd_fast_forward),
+-                    onBegin = { viewModel.audioScanBegin(true) },
+-                    onEnd = { viewModel.audioScanEnd() }
+-                )
++            is Lyrics.Plain -> {
++                val listState = rememberLazyListState()
++                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
++                    items(lyrics.lines.size) { i ->
++                        Text(
++                            text = lyrics.lines[i],
++                            fontFamily = Aero.Display,
++                            fontSize = 23.sp,
++                            lineHeight = 36.sp,
++                            color = Aero.Ink.copy(alpha = 0.72f),
++                            modifier = Modifier.padding(vertical = 5.dp)
++                        )
++                    }
++                }
+             }
+ 
+-            Row(
+-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+-                verticalAlignment = Alignment.CenterVertically,
+-                modifier = Modifier.fillMaxWidth()
+-            ) {
 -                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.dpadFocus()) {
-+                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.aeroFocus()) {
-                     Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
-                 }
+-                    Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
+-                }
 -                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.dpadFocus()) {
-+                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.aeroFocus()) {
-                     Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
+-                    Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
++            is Lyrics.Timed -> {
++                val active = LyricsSource.activeIndex(lyrics.lines, positionMs)
++                val listState = rememberLazyListState()
++                LaunchedEffect(active) {
++                    if (active >= 0) {
++                        // keep the sung line a little down the panel, not at the top
++                        listState.animateScrollToItem(maxOf(0, active - 2))
++                    }
                  }
 -                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.dpadFocus()) {
-+                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.aeroFocus()) {
-                     Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
+-                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
++                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
++                    items(lyrics.lines.size) { i ->
++                        val line = lyrics.lines[i]
++                        val isNow = i == active
++                        val distance = kotlin.math.abs(i - active)
++                        val fade by animateFloatAsState(
++                            targetValue = when {
++                                isNow -> 1f
++                                distance <= 2 -> 0.42f
++                                else -> 0.22f
++                            },
++                            animationSpec = tween(320),
++                            label = "lyricFade"
++                        )
++                        val size by animateFloatAsState(
++                            targetValue = if (isNow) 30f else 24f,
++                            animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow),
++                            label = "lyricSize"
++                        )
++                        if (line.text.isEmpty()) {
++                            Spacer(Modifier.height(18.dp))
++                        } else {
++                            Text(
++                                text = line.text,
++                                fontFamily = Aero.Display,
++                                fontSize = size.sp,
++                                lineHeight = (size * 1.5f).sp,
++                                color = if (isNow) Aero.Ink else Aero.Ink.copy(alpha = fade),
++                                modifier = Modifier.padding(vertical = 6.dp)
++                            )
++                        }
++                    }
                  }
              }
-@@ -1039,3 +1047,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
+         }
+     }
+ }
+ 
++@Composable
++private fun LyricsNote(text: String) {
++    Box(modifier = Modifier.fillMaxSize()) {
++        Text(
++            text = text,
++            fontFamily = Aero.Display,
++            fontSize = 20.sp,
++            color = Aero.InkDim.copy(alpha = 0.48f),
++            modifier = Modifier.padding(top = 8.dp)
++        )
++    }
++}
++
+ private const val VIDEO_OVERLAY_HIDE_MS = 4000L
+ 
+ @Composable
+@@ -1039,3 +1206,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
  private fun formatDecode(meanUs: Int, maxUs: Int, held: Int, errors: Int): String =
      (if (meanUs == 0) "held=$held"
      else "%.1f/%.1f ms held=%d".format(meanUs / 1000.0, maxUs / 1000.0, held)) + " errs=$errors"
@@ -2493,3 +3104,18 @@ index cb3af28..83e6796 100644
 +        android:strokeColor="#FF000000" android:strokeWidth="11"
 +        android:strokeLineCap="round" android:pathData="M68,80 L68,66" />
  </vector>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 9a17a5d..efabce2 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -25,6 +25,10 @@
+     <string name="stopped_label">Stopped</string>
+     <string name="btn_start">Start</string>
+     <string name="btn_stop">Stop</string>
++    <string name="lyrics_title">Lyrics</string>
++    <string name="lyrics_loading">Looking for lyrics…</string>
++    <string name="lyrics_none">No lyrics found for this track</string>
++    <string name="lyrics_source">via LRCLIB</string>
+     <string name="unknown_track">Unknown</string>
+ 
+     <!-- Content descriptions -->
