@@ -97,6 +97,14 @@ if ($content.Contains($patched)) {
 # Windows, so normalise instead of doubling up, and keep the separator out of
 # this source entirely.
 function ConvertTo-JavaPropsPath { param([string]$Path) return $Path.Replace([char]92, '/') }
+# Java's Properties.load knows nothing about a byte order mark: it folds one into
+# the first key name, so sdk.dir silently stops being sdk.dir. PowerShell 5.1 emits
+# a BOM with -Encoding utf8, so these files go through .NET instead.
+function Write-PropsFile {
+    param([string]$Path, [string[]]$Lines)
+    [System.IO.File]::WriteAllLines($Path, $Lines, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 
 $keystore = Join-Path $KeystoreDir 'firetv-sideload.p12'
 $pwFile   = Join-Path $KeystoreDir 'keystore-password.txt'
@@ -137,7 +145,7 @@ if ($BuildType -eq 'release') {
         "keyAlias=$keyAlias",
         "keyPassword=$storePassword"
     )
-    ($kept + $signing) | Set-Content -Path $localProps -Encoding utf8
+    Write-PropsFile -Path $localProps -Lines ($kept + $signing)
 }
 
 # ---------------------------------------------------------------- the build

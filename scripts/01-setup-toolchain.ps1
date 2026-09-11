@@ -165,14 +165,22 @@ Write-Step 'Writing local.properties and toolchain-env.ps1'
 # this source entirely.
 function ConvertTo-JavaPropsPath { param([string]$Path) return $Path.Replace([char]92, '/') }
 
+
+# Java's Properties.load knows nothing about a byte order mark: it folds one into
+# the first key name, so sdk.dir silently stops being sdk.dir. PowerShell 5.1 emits
+# a BOM with -Encoding utf8, so these files go through .NET instead.
+function Write-PropsFile {
+    param([string]$Path, [string[]]$Lines)
+    [System.IO.File]::WriteAllLines($Path, $Lines, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 $localProps = Join-Path $RepoRoot 'local.properties'
 $sdkLine    = 'sdk.dir=' + (ConvertTo-JavaPropsPath $SdkRoot)
+$propLines  = @($sdkLine)
 if (Test-Path $localProps) {
-    $kept = Get-Content $localProps | Where-Object { $_ -notmatch '^\s*sdk\.dir\s*=' }
-    @($sdkLine) + $kept | Set-Content -Path $localProps -Encoding utf8
-} else {
-    $sdkLine | Set-Content -Path $localProps -Encoding utf8
+    $propLines += @(Get-Content $localProps | Where-Object { $_ -notmatch '^\s*sdk\.dir\s*=' })
 }
+Write-PropsFile -Path $localProps -Lines $propLines
 
 $envScript = Join-Path $ProjectRoot 'toolchain-env.ps1'
 @"
