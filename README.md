@@ -159,9 +159,10 @@ pick the receiver from the list.
 On a **Mac**: open Control Center in the menu bar, click `Screen Mirroring`, pick
 the receiver.
 
-> [!WARNING]
-> Use `Screen Mirroring`, not the small AirPlay icon inside a video player. That
-> icon sends audio only to this receiver and you get sound with a black picture.
+> [!TIP]
+> Always start from `Screen Mirroring`, not the small AirPlay icon inside a video
+> player. If a video then plays with sound but no picture, see
+> [sound without a picture](#what-to-do-instead-when-an-app-is-blocked).
 
 That is it. Your screen appears on the TV, with sound.
 
@@ -249,14 +250,26 @@ stick itself, available in the Amazon Appstore. Ordinary HTML5 video usually
 plays. Sites that use DRM often still refuse, drop to low quality, or will not go
 fullscreen, because they expect a dedicated app. Worth trying, not a guarantee.
 
-**Do not use the AirPlay button inside a video player.** The receiver advertises
-screen mirroring but deliberately does not advertise the separate AirPlay video
-route. Its capability flags are `0x5A7FFEE6`, where bit 7 for screen mirroring is
-on and bit 0 for AirPlay video is off. Tapping AirPlay inside a player therefore
-makes your device fall back to sending audio only, and the TV shows a now-playing
-screen with no picture. Always start from Control Center and pick Screen
-Mirroring. YouTube is the one sender the receiver handles through a dedicated
-path.
+**Sound arrives but no picture?** That is the most common complaint and it has
+nothing to do with DRM. Two things decide whether video comes through.
+
+First, iOS hands a fullscreen HTML5 video in Safari over to the AirPlay video
+route rather than mirroring it. Apple documents this: with mirroring active,
+playing a video and entering fullscreen triggers remote playback instead. The
+video leaves the mirrored screen at that moment.
+
+Second, the receiver has its own switch for whether it advertises that route,
+under `Settings`, then `Developer options`, then `Advertise AirPlay video
+support`. Developer options must be switched on first before it appears. It
+defaults to on, and its own description states that with it off, videos arrive as
+audio-only streams.
+
+So if you get sound with a black picture, check that switch first. If it is
+already on, the handoff is happening but the receiver cannot fetch the stream by
+itself. That is common on sites whose media URLs only work from inside the browser
+session, because they check the referrer or carry a one-time token. Keep such a
+video out of fullscreen and it stays part of the mirrored screen: play it inline
+and turn the phone to landscape instead of tapping the fullscreen button.
 
 **For anything else that fails**, run the diagnostic in the next section. It tells
 a protected stream apart from a real bug.
@@ -271,7 +284,7 @@ a protected stream apart from a real bug.
 | The install fails mentioning signatures | An older build is installed with a different key. Run `adb uninstall io.github.jqssun.airplay` and install again. |
 | `INSTALL_FAILED_OLDER_SDK` | Your stick runs Fire OS 5. See step 1, this model cannot run the app. |
 | The picture stutters or tears | Lower the resolution or frame rate in the app's settings on the TV. |
-| Sound plays but there is no picture, and the TV shows a music player | You used the AirPlay button inside the app. Open Control Center and choose `Screen Mirroring` instead. |
+| Sound plays but there is no picture, and the TV shows a music player | Check `Advertise AirPlay video support` under the app's developer options, then avoid fullscreen for that video. See the section above. |
 | A particular video will not play and you want to know why | Run the diagnostic below. |
 
 ### Finding out why one video fails

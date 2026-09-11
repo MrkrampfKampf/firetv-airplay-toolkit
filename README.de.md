@@ -146,10 +146,10 @@ Auf **iPhone oder iPad**: Kontrollzentrum aufziehen, auf
 Auf dem **Mac**: Kontrollzentrum in der Menüleiste öffnen, auf
 `Bildschirmsynchronisierung` klicken, den Empfänger wählen.
 
-> [!WARNING]
-> Nimm `Bildschirmsynchronisierung`, nicht das kleine AirPlay-Symbol im
-> Videoplayer. Dieses Symbol überträgt an diesen Empfänger nur den Ton, du
-> bekommst also Klang bei schwarzem Bild.
+> [!TIP]
+> Starte immer über `Bildschirmsynchronisierung`, nicht über das kleine
+> AirPlay-Symbol im Videoplayer. Läuft ein Video dann mit Ton aber ohne Bild, siehe
+> [Ton ohne Bild](#was-du-stattdessen-tun-kannst-wenn-eine-app-blockiert).
 
 Fertig. Dein Bildschirm erscheint auf dem Fernseher, mit Ton.
 
@@ -240,13 +240,27 @@ Seiten mit DRM verweigern trotzdem oft, gehen auf niedrige Qualität herunter od
 nicht in den Vollbildmodus, weil sie eine eigene App erwarten. Ein Versuch lohnt,
 eine Garantie ist es nicht.
 
-**Nimm nicht den AirPlay-Knopf im Videoplayer.** Der Empfänger meldet die
-Bildschirmspiegelung an, die separate AirPlay-Video-Route aber absichtlich nicht.
-Seine Fähigkeitsbits sind `0x5A7FFEE6`, darin ist Bit 7 für Spiegelung an und
-Bit 0 für AirPlay-Video aus. Wer im Player auf AirPlay tippt, bekommt deshalb nur
-den Ton übertragen, und am Fernseher erscheint eine Musikwiedergabe ohne Bild.
-Immer über das Kontrollzentrum gehen und Bildschirmsynchronisierung wählen.
-YouTube ist der einzige Sender, für den der Empfänger einen eigenen Weg hat.
+**Ton kommt an, aber kein Bild?** Das ist die häufigste Beschwerde und hat nichts
+mit DRM zu tun. Zwei Dinge entscheiden, ob Bild durchkommt.
+
+Erstens übergibt iOS ein Vollbild-HTML5-Video aus Safari an die AirPlay-Video-Route
+statt es mitzuspiegeln. Apple dokumentiert das: bei laufender Spiegelung löst das
+Abspielen eines Videos im Vollbild eine getrennte Fernwiedergabe aus. In diesem
+Moment verlässt das Video den gespiegelten Bildschirm.
+
+Zweitens hat der Empfänger einen eigenen Schalter dafür, unter `Settings`, dann
+`Developer options`, dann `Advertise AirPlay video support`. Die Entwickleroptionen
+müssen vorher eingeschaltet werden, sonst ist er nicht sichtbar. Standardmäßig ist
+er an, und seine eigene Beschreibung sagt, dass Videos bei ausgeschaltetem Schalter
+nur als Tonstrom ankommen.
+
+Bei Ton ohne Bild also zuerst diesen Schalter prüfen. Ist er schon an, findet die
+Übergabe statt, aber der Empfänger kann den Stream nicht selbst abrufen. Das ist
+häufig bei Seiten, deren Medienadressen nur innerhalb der Browsersitzung
+funktionieren, weil sie den Referrer prüfen oder ein einmaliges Token tragen. Halte
+so ein Video aus dem Vollbild heraus, dann bleibt es Teil des gespiegelten Bildes:
+im Seitenlayout abspielen und das Handy quer drehen statt den Vollbildknopf zu
+tippen.
 
 **Für alles andere, was scheitert**, führ die Diagnose im nächsten Abschnitt aus.
 Sie unterscheidet einen geschützten Stream von einem echten Fehler.
@@ -261,7 +275,7 @@ Sie unterscheidet einen geschützten Stream von einem echten Fehler.
 | Installation scheitert mit Signaturfehler | Eine ältere Version mit anderem Schlüssel ist installiert. `adb uninstall io.github.jqssun.airplay` ausführen, dann neu installieren. |
 | `INSTALL_FAILED_OLDER_SDK` | Dein Stick läuft mit Fire OS 5. Siehe Schritt 1, dieses Modell kann die App nicht ausführen. |
 | Das Bild ruckelt oder reißt | In den App-Einstellungen am Fernseher Auflösung oder Bildrate senken. |
-| Ton läuft, aber kein Bild, und der Fernseher zeigt eine Musikwiedergabe | Du hast den AirPlay-Knopf in der App benutzt. Stattdessen im Kontrollzentrum `Bildschirmsynchronisierung` wählen. |
+| Ton läuft, aber kein Bild, und der Fernseher zeigt eine Musikwiedergabe | `Advertise AirPlay video support` in den Entwickleroptionen der App prüfen, dann das Video nicht im Vollbild abspielen. Siehe den Abschnitt darüber. |
 | Ein bestimmtes Video läuft nicht und du willst wissen warum | Die Diagnose unten ausführen. |
 
 ### Herausfinden, warum ein Video nicht läuft
