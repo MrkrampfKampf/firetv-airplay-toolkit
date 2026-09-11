@@ -72,7 +72,16 @@ if ($patches.Count -gt 0) {
         if ($LASTEXITCODE -ne 0) { throw "Cannot read patch $($patch.Name). It probably no longer matches the pinned submodule commit." }
         $files = @($numstat | ForEach-Object { ($_ -split "`t")[-1] } | Where-Object { $_ })
         # Reset what the patch touches first, so rebuilding never stacks it twice.
-        foreach ($file in $files) { & git -C $RepoRoot checkout -- $file }
+        # A patch that CREATES a file has nothing to check out, and git apply refuses
+        # to create a file that is already there, so those get removed instead.
+        foreach ($file in $files) {
+            $tracked = & git -C $RepoRoot ls-tree --name-only HEAD -- $file
+            if ($tracked) {
+                & git -C $RepoRoot checkout -- $file
+            } else {
+                Remove-Item -LiteralPath (Join-Path $RepoRoot $file) -Force -ErrorAction Ignore
+            }
+        }
         & git -C $RepoRoot apply $patch.FullName
         if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($patch.Name)" }
         Write-Host "  $($patch.Name) -> $($files -join ', ')"
