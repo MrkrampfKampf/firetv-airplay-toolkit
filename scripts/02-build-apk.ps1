@@ -14,7 +14,13 @@ param(
     [string]$Abis = 'arm64-v8a,armeabi-v7a',
     [ValidateSet('release', 'debug')]
     [string]$BuildType = 'release',
-    [switch]$SkipSubmodules
+    [switch]$SkipSubmodules,
+    # Compiling the native half needs a POSIX shell, perl and make: FFmpeg is built
+    # through its own configure script and OpenSSL from source. That works on Linux,
+    # which is where upstream builds, and not on a plain Windows machine. This switch
+    # takes the .so files out of the upstream release instead and compiles only the
+    # Kotlin layer, which is all a UI change touches. Minutes instead of hours.
+    [switch]$UsePrebuiltNativeLibs
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,6 +81,64 @@ if ($patches.Count -gt 0) {
     Write-Host 'No patches in patches\app, building upstream unchanged'
 }
 
+# ------------------------------------------- reuse upstream's compiled native libs
+if ($UsePrebuiltNativeLibs) {
+    Write-Step 'Taking native libraries from the upstream release'
+    $sourceApk = Get-ChildItem -Path $DistDir -Filter '*upstream*.apk' -ErrorAction Ignore |
+                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $sourceApk) {
+        throw "No upstream APK in $DistDir. Run scripts-get-prebuilt-apk.ps1 first."
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($sourceApk.FullName)
+    try {
+        $wanted = @($Abis -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $copied = 0
+        foreach ($abi in $wanted) {
+            $target = Join-Path $RepoRoot "app/src/main/jniLibs/$abi"
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+            foreach ($entry in $zip.Entries) {
+                if ($entry.FullName -like "lib/$abi/*.so") {
+                    $dest = Join-Path $target ([System.IO.Path]::GetFileName($entry.FullName))
+                    [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dest, $true)
+                    $copied++
+                }
+            }
+        }
+    } finally {
+        $zip.Dispose()
+    }
+    if ($copied -eq 0) { throw "Found no .so entries for $Abis inside $($sourceApk.Name)" }
+    Write-Host "  $copied libraries from $($sourceApk.Name)"
+
+    # Switch the native build off. Without this AGP still runs CMake and fails on the
+    # missing POSIX toolchain, and the jniLibs would be ignored anyway.
+    $gradleFile = Join-Path $RepoRoot 'app/build.gradle.kts'
+    $body = Get-Content -Path $gradleFile -Raw
+    $nativeBlocks = @(
+        "    externalNativeBuild {`r`n        cmake {`r`n            path = file(`"src/main/cpp/CMakeLists.txt`")`r`n        }`r`n    }`r`n",
+        "        externalNativeBuild {`r`n            cmake {`r`n                arguments += `"-DANDROID_STL=c++_shared`"`r`n                arguments += `"-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON`"`r`n            }`r`n        }`r`n"
+    )
+    $removed = 0
+    foreach ($block in $nativeBlocks) {
+        $lf = $block.Replace("`r`n", "`n")
+        foreach ($variant in @($block, $lf)) {
+            if ($body.Contains($variant)) {
+                $body = $body.Replace($variant, "    // native build off: prebuilt .so files come from src/main/jniLibs`n")
+                $removed++
+                break
+            }
+        }
+    }
+    if ($removed -gt 0) {
+        Set-Content -Path $gradleFile -Value $body -NoNewline -Encoding utf8
+        Write-Host "  disabled $removed externalNativeBuild block(s)"
+    } else {
+        Write-Host '  externalNativeBuild already disabled'
+    }
+}
+
 # ------------------------------------------------- make the ABI list settable
 # Upstream hardcodes three ABIs. Turn that into a Gradle property so we can
 # build only what a Fire TV runs. Idempotent: re-running changes nothing.
@@ -133,19 +197,28 @@ if ($BuildType -eq 'release') {
 
     Write-Step 'Writing signing config into local.properties'
     $localProps = Join-Path $RepoRoot 'local.properties'
+    # @() around the pipeline matters: with a single surviving line $kept would be a
+    # bare string, and "string" + @(...) concatenates in PowerShell instead of
+    # building an array, collapsing the whole file onto one unusable line.
     $kept = @()
     if (Test-Path $localProps) {
-        $kept = Get-Content $localProps | Where-Object {
+        $kept = @(Get-Content $localProps | Where-Object {
             $_ -notmatch '^\s*(storeFile|storePassword|keyAlias|keyPassword)\s*='
-        }
+        })
     }
+    # Build every line by interpolation. In PowerShell the comma binds tighter than
+    # +, so "'storeFile=' + (path), 'storePassword=...'" is read as
+    # "'storeFile=' + (the whole rest as an array)" and collapses into ONE
+    # space-joined string. That produced a storeFile path with the password glued to
+    # the end of it, and the packaging step failed on a file name that cannot exist.
+    $storeFileValue = ConvertTo-JavaPropsPath $keystore
     $signing = @(
-        'storeFile=' + (ConvertTo-JavaPropsPath $keystore),
+        "storeFile=$storeFileValue",
         "storePassword=$storePassword",
         "keyAlias=$keyAlias",
         "keyPassword=$storePassword"
     )
-    Write-PropsFile -Path $localProps -Lines ($kept + $signing)
+    Write-PropsFile -Path $localProps -Lines (@($kept) + @($signing))
 }
 
 # ---------------------------------------------------------------- the build

@@ -1,0 +1,125 @@
+diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/audio/DacpController.kt b/app/src/main/kotlin/io/github/jqssun/airplay/audio/DacpController.kt
+index 5b5527e..10113f6 100644
+--- a/app/src/main/kotlin/io/github/jqssun/airplay/audio/DacpController.kt
++++ b/app/src/main/kotlin/io/github/jqssun/airplay/audio/DacpController.kt
+@@ -10,6 +10,7 @@ import java.io.IOException
+ import java.net.HttpURLConnection
+ import java.net.URL
+ import java.util.concurrent.Executors
++import java.util.concurrent.TimeUnit
+ 
+ /**
+  * Sends DACP (Digital Audio Control Protocol) commands back to the AirPlay sender.
+@@ -18,7 +19,14 @@ import java.util.concurrent.Executors
+ class DacpController(ctx: Context) {
+ 
+     private val nsdManager = ctx.getSystemService(Context.NSD_SERVICE) as NsdManager
+-    private val exec = Executors.newSingleThreadExecutor()
++    private val exec = Executors.newSingleThreadScheduledExecutor()
++
++    // mDNS resolution on Fire OS fails often enough that one attempt is not a
++    // strategy. Without a retry a single failure left host empty for the whole
++    // session and every transport command died silently in _send, which looks
++    // exactly like skip and pause being unimplemented.
++    @Volatile private var resolving = false
++    @Volatile private var attempts = 0
+ 
+     @Volatile var dacpId = ""
+     @Volatile var activeRemote = ""
+@@ -28,6 +36,7 @@ class DacpController(ctx: Context) {
+     fun update(dacpId: String, activeRemote: String) {
+         this.dacpId = dacpId
+         this.activeRemote = activeRemote
++        attempts = 0
+         _resolve()
+     }
+ 
+@@ -47,6 +56,8 @@ class DacpController(ctx: Context) {
+         activeRemote = ""
+         host = ""
+         port = 0
++        attempts = 0
++        resolving = false
+     }
+ 
+     fun release() {
+@@ -55,7 +66,12 @@ class DacpController(ctx: Context) {
+     }
+ 
+     private fun _resolve() {
+-        if (dacpId.isEmpty()) return
++        if (dacpId.isEmpty() || host.isNotEmpty()) return
++        // One resolve in flight at a time: NsdManager rejects overlapping requests.
++        synchronized(this) {
++            if (resolving) return
++            resolving = true
++        }
+         val serviceName = "iTunes_Ctrl_$dacpId"
+         val info = NsdServiceInfo().apply {
+             serviceType = "_dacp._tcp"
+@@ -64,22 +80,56 @@ class DacpController(ctx: Context) {
+         try {
+             nsdManager.resolveService(info, object : NsdManager.ResolveListener {
+                 override fun onResolveFailed(si: NsdServiceInfo, code: Int) {
+-                    Log.w(TAG, "DACP resolve failed: $code")
++                    resolving = false
++                    Log.w(TAG, "DACP resolve failed: $code (attempt ${attempts + 1})")
++                    _scheduleRetry()
+                 }
+                 override fun onServiceResolved(si: NsdServiceInfo) {
+-                    host = si.host.hostAddress ?: return
++                    resolving = false
++                    val address = si.host?.hostAddress
++                    if (address == null) {
++                        Log.w(TAG, "DACP resolved without an address")
++                        _scheduleRetry()
++                        return
++                    }
++                    attempts = 0
++                    host = address
+                     port = si.port
+                     Log.i(TAG, "DACP resolved: $host:$port")
+                 }
+             })
+         } catch (e: Exception) {
++            resolving = false
+             Log.w(TAG, "DACP resolve error", e)
++            _scheduleRetry()
++        }
++    }
++
++    // Backs off 1, 2, 4, 8 then 15 seconds. A sender that appears late still gets
++    // picked up, and a sender that never appears stops costing anything.
++    private fun _scheduleRetry() {
++        val attempt = attempts
++        if (attempt >= MAX_RESOLVE_ATTEMPTS) {
++            Log.w(TAG, "DACP giving up after $attempt attempts; transport keys will not work")
++            return
++        }
++        attempts = attempt + 1
++        val delaySeconds = minOf(1L shl attempt, 15L)
++        try {
++            exec.schedule({ if (dacpId.isNotEmpty() && host.isEmpty()) _resolve() },
++                          delaySeconds, TimeUnit.SECONDS)
++        } catch (_: Exception) {
++            // executor already shut down, nothing to retry into
+         }
+     }
+ 
+     private fun _send(path: String): ListenableFuture<Unit> {
+         val result = SettableFuture.create<Unit>()
+         if (host.isEmpty() || activeRemote.isEmpty()) {
++            // Try again in the background so the next key press has an endpoint,
++            // instead of failing every press for the rest of the session.
++            attempts = 0
++            _resolve()
+             result.setException(IOException("dacp endpoint not resolved"))
+             return result
+         }
+@@ -115,5 +165,6 @@ class DacpController(ctx: Context) {
+ 
+     companion object {
+         private const val TAG = "DacpController"
++        private const val MAX_RESOLVE_ATTEMPTS = 5
+     }
+ }

@@ -1,0 +1,286 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+  <style>
+    body { margin: 0; background: #07070A; font-family: Manrope, "Segoe UI", system-ui, sans-serif; }
+    a { color: #FFB25C; } a:hover { color: #FFC98A; }
+
+    /* ------------------------------------------------------------- glass
+       Clear glass, not frosted: the blur is small enough that the cover's
+       shapes stay readable straight through the pane. What makes it look
+       like glass instead of a tinted rectangle is the edge treatment -
+       a hard specular line along the top, light bending inward on all four
+       rims, a dark lower inner edge that reads as thickness, a faint
+       warm/cool fringe on opposite corners, and a sheen that drifts across.
+       On the Fire TV the see-through part is a lightly blurred crop of the
+       cover drawn behind each pane, since Android 9 has no live blur. */
+    .glass {
+      position: relative;
+      background:
+        linear-gradient(177deg,
+          rgba(255,255,255,0.15) 0%,
+          rgba(255,255,255,0.045) 34%,
+          rgba(255,255,255,0.028) 70%,
+          rgba(255,255,255,0.06) 100%);
+      backdrop-filter: blur(15px) saturate(210%) contrast(1.06) brightness(1.03);
+      -webkit-backdrop-filter: blur(15px) saturate(210%) contrast(1.06) brightness(1.03);
+      border: 1px solid rgba(255,255,255,0.20);
+      box-shadow:
+        inset 0 1.5px 0 rgba(255,255,255,0.58),
+        inset 1px 0 0 rgba(255,255,255,0.15),
+        inset -1px 0 0 rgba(255,255,255,0.15),
+        inset 0 22px 34px -26px rgba(255,255,255,0.46),
+        inset 0 -30px 44px -34px rgba(0,0,0,0.58),
+        inset 0 -1px 0 rgba(255,255,255,0.10),
+        0 44px 96px rgba(0,0,0,0.46),
+        0 4px 14px rgba(0,0,0,0.24);
+    }
+    .glass::before {
+      content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+      background: linear-gradient(104deg,
+        rgba(255,255,255,0) 30%, rgba(255,255,255,0.13) 46%,
+        rgba(255,255,255,0.02) 56%, rgba(255,255,255,0) 70%);
+      background-size: 280% 100%;
+      animation: sheen 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    }
+    .glass::after {
+      content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+      box-shadow:
+        inset 2px 2px 20px -9px rgba(150,205,255,0.62),
+        inset -2px -2px 20px -9px rgba(255,186,124,0.46);
+    }
+    @keyframes sheen {
+      0% { background-position: 150% 0; } 55%, 100% { background-position: -50% 0; }
+    }
+
+    /* round transport button, same material */
+    .key {
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 50%; flex: 0 0 auto;
+    }
+    /* what the remote is pointing at: accent ring, lift, glow */
+    .focused {
+      background: linear-gradient(177deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.13) 100%) !important;
+      border-color: rgba(255,255,255,0.55) !important;
+      transform: scale(1.07);
+      animation: focusPulse 2.4s ease-in-out infinite;
+    }
+    @keyframes focusPulse {
+      0%, 100% { box-shadow: 0 0 0 3px var(--ring), 0 0 30px -2px var(--ring), inset 0 2px 0 rgba(255,255,255,0.7); }
+      50%      { box-shadow: 0 0 0 3px var(--ring), 0 0 46px 2px var(--ring), inset 0 2px 0 rgba(255,255,255,0.7); }
+    }
+
+    @keyframes driftGround {
+      0% { transform: scale(1.10); }
+      50% { transform: scale(1.17) translate3d(-18px, -12px, 0); }
+      100% { transform: scale(1.10); }
+    }
+    /* one breath; on device the audio level drives this, not a clock */
+    @keyframes breathe {
+      0%, 100% { opacity: 0.46; transform: scale(0.97); }
+      50% { opacity: 0.80; transform: scale(1.05); }
+    }
+    @keyframes riseIn { from { opacity: 0; transform: translate3d(0, 34px, 0); } to { opacity: 1; transform: none; } }
+    @keyframes settleIn { from { opacity: 0; transform: translate3d(0, -18px, 0); } to { opacity: 1; transform: none; } }
+    .bar { animation: barPulse 1.25s ease-in-out infinite; transform-origin: bottom; border-radius: 6px; }
+    @keyframes barPulse { 0%, 100% { transform: scaleY(0.26); } 50% { transform: scaleY(1); } }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #07070A;">
+
+  <!-- the album art is the whole ground, sharp, so it can be seen through the glass -->
+  <div style="position: absolute; inset: -80px; animation: driftGround 26s ease-in-out infinite;
+    background:
+      radial-gradient(circle at 24% 24%, #9A5BFF 0%, rgba(154,91,255,0) 44%),
+      radial-gradient(circle at 74% 16%, #FF3D7F 0%, rgba(255,61,127,0) 40%),
+      radial-gradient(circle at 68% 82%, #FFB25C 0%, rgba(255,178,92,0) 40%),
+      radial-gradient(circle at 12% 78%, #2447E8 0%, rgba(36,71,232,0) 42%),
+      conic-gradient(from 210deg at 46% 54%, rgba(255,255,255,0.10), rgba(0,0,0,0.16), rgba(255,255,255,0.08)),
+      linear-gradient(148deg, #1C0F34 0%, #33103F 54%, #120C22 100%);"></div>
+
+  <!-- light hand: enough to read by, not enough to hide the art -->
+  <div style="position: absolute; inset: 0; background:
+    linear-gradient(to bottom, rgba(4,4,8,0.34) 0%, rgba(4,4,8,0.00) 26%,
+                               rgba(4,4,8,0.14) 60%, rgba(4,4,8,0.62) 100%);"></div>
+
+  <!-- swells with the sound -->
+  <div style="position: absolute; left: 50%; bottom: -240px; width: 1660px; height: 700px;
+    margin-left: -830px; pointer-events: none; animation: breathe 2.9s ease-in-out infinite;
+    background: radial-gradient(ellipse at center, {{accent}} 0%, rgba(0,0,0,0) 58%);
+    mix-blend-mode: screen; filter: blur(74px);"></div>
+
+  <!-- ============================== top row ============================== -->
+  <div style="position: absolute; left: 80px; top: 48px; right: 80px; display: flex;
+    align-items: center; justify-content: space-between; gap: 24px;
+    animation: settleIn 640ms cubic-bezier(0.16,1,0.3,1) both;">
+    <div class="glass" style="display: flex; align-items: center; gap: 18px;
+      padding: 15px 30px 15px 22px; border-radius: 999px;">
+      <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.8"
+        stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.95;">
+        <path d="M5.2 14.6a9.2 9.2 0 0 1 13.6 0"></path>
+        <path d="M8.4 17.7a5.1 5.1 0 0 1 7.2 0"></path>
+        <path d="M12 21.2l3.6-4.1H8.4L12 21.2z"></path>
+      </svg>
+      <span style="font-size: 25px; font-weight: 700; color: #FFFFFF;">Wohnzimmer</span>
+      <span style="width: 1px; height: 24px; background: rgba(255,255,255,0.26);"></span>
+      <span style="font-size: 23px; font-weight: 500; color: rgba(255,255,255,0.68);">Matteos iPhone</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="padding: 12px 20px; border-radius: 999px; font-size: 19px; font-weight: 800;
+        letter-spacing: 0.10em; color: #17110A; background: {{accent}};
+        box-shadow: 0 8px 24px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.45);">ALAC</span>
+      <span class="glass" style="padding: 12px 20px; border-radius: 999px; font-size: 19px;
+        font-weight: 600; letter-spacing: 0.05em; color: #FFFFFF;">44,1 kHz · 16 bit</span>
+    </div>
+  </div>
+
+  <!-- ============================ the main pane ============================ -->
+  <div style="position: absolute; left: 80px; right: 80px; bottom: 48px;
+    animation: riseIn 760ms cubic-bezier(0.16,1,0.3,1) both;">
+    <div class="glass" style="border-radius: 40px; padding: 40px;">
+      <div style="position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 44px;">
+
+        <!-- the one sharp anchor -->
+        <div style="flex: 0 0 auto; width: 252px; height: 252px; border-radius: 22px; overflow: hidden;
+          border: 1px solid rgba(255,255,255,0.22);
+          box-shadow: 0 30px 66px rgba(0,0,0,0.60), inset 0 1px 0 rgba(255,255,255,0.32);
+          background:
+            radial-gradient(circle at 26% 24%, #9A5BFF 0%, rgba(154,91,255,0) 52%),
+            radial-gradient(circle at 80% 22%, #FF4E8E 0%, rgba(255,78,142,0) 48%),
+            radial-gradient(circle at 64% 86%, #FFB25C 0%, rgba(255,178,92,0) 46%),
+            linear-gradient(150deg, #2A1548 0%, #431553 58%, #170F2A 100%);"></div>
+
+        <div style="flex: 1 1 auto; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+            <span style="width: 9px; height: 9px; border-radius: 50%; background: {{accent}};
+              box-shadow: 0 0 14px {{accent}};"></span>
+            <span style="font-size: 19px; font-weight: 700; letter-spacing: 0.18em;
+              color: rgba(255,255,255,0.80);">SPIELT GERADE</span>
+          </div>
+
+          <div style="font-size: 70px; font-weight: 800; line-height: 1.0; letter-spacing: -0.025em;
+            color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            text-shadow: 0 3px 26px rgba(0,0,0,0.50);">Nachtspur</div>
+
+          <div style="display: flex; align-items: baseline; gap: 15px; margin-top: 12px;">
+            <span style="font-size: 34px; font-weight: 600; color: rgba(255,255,255,0.88);">Halbmond Kollektiv</span>
+            <span style="font-size: 25px; color: rgba(255,255,255,0.36);">·</span>
+            <span style="font-size: 25px; font-weight: 500; color: rgba(255,255,255,0.62);">Lange Wege</span>
+          </div>
+
+          <!-- progress -->
+          <div style="margin-top: 28px; display: flex; align-items: center; gap: 22px;">
+            <span style="font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums;
+              color: #FFFFFF; min-width: 78px;">1:47</span>
+            <div style="position: relative; flex: 1 1 auto; height: 12px; border-radius: 999px;
+              background: rgba(0,0,0,0.40);
+              box-shadow: inset 0 1px 2px rgba(0,0,0,0.66), inset 0 -1px 0 rgba(255,255,255,0.12);">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 41%; border-radius: 999px;
+                background: linear-gradient(90deg, rgba(255,255,255,0.62) 0%, {{accent}} 100%);
+                box-shadow: 0 0 22px {{accent}};"></div>
+              <div style="position: absolute; left: 41%; top: 50%; width: 28px; height: 28px;
+                margin: -14px 0 0 -14px; border-radius: 50%; background: #FFFFFF;
+                box-shadow: 0 8px 22px rgba(0,0,0,0.62), 0 0 26px rgba(255,255,255,0.45),
+                            inset 0 -2px 4px rgba(0,0,0,0.18);"></div>
+            </div>
+            <span style="font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums;
+              color: rgba(255,255,255,0.50); min-width: 78px; text-align: right;">4:18</span>
+          </div>
+
+          <!-- transport: the remote lands here, play is what it is on -->
+          <div style="margin-top: 26px; display: flex; align-items: center; gap: 20px;">
+
+            <span class="glass key" style="width: 76px; height: 76px;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="#FFFFFF">
+                <path d="M7 5h2.4v14H7z"></path><path d="M20 5v14L9.6 12z"></path>
+              </svg>
+            </span>
+
+            <span class="glass key focused" style="--ring: {{accent}}; width: 96px; height: 96px;">
+              <svg width="38" height="38" viewBox="0 0 24 24" fill="#FFFFFF">
+                <rect x="6.5" y="4.5" width="4" height="15" rx="1.4"></rect>
+                <rect x="13.5" y="4.5" width="4" height="15" rx="1.4"></rect>
+              </svg>
+            </span>
+
+            <span class="glass key" style="width: 76px; height: 76px;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="#FFFFFF">
+                <path d="M14.6 5H17v14h-2.4z"></path><path d="M4 5v14l10.4-7z"></path>
+              </svg>
+            </span>
+
+            <span style="width: 1px; height: 54px; background: rgba(255,255,255,0.16); margin: 0 8px;"></span>
+
+            <span class="glass key" style="width: 68px; height: 68px;">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 9v6h3.5L13 20V4L7.5 9H4z"></path><path d="M17.5 9.5a4 4 0 0 1 0 5"></path>
+              </svg>
+            </span>
+            <div class="glass" style="display: flex; align-items: center; gap: 14px;
+              padding: 0 22px; height: 68px; border-radius: 999px;">
+              <div style="position: relative; width: 190px; height: 8px; border-radius: 999px; background: rgba(0,0,0,0.40);">
+                <div style="position: absolute; inset: 0 34% 0 0; border-radius: 999px; background: #FFFFFF;"></div>
+              </div>
+              <span style="font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: #FFFFFF;">66</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- moves with the music -->
+        <div style="flex: 0 0 auto; align-self: stretch; display: flex; align-items: flex-end; gap: 8px;
+          padding-left: 24px; border-left: 1px solid rgba(255,255,255,0.14);">
+          <div class="bar" style="width: 10px; height: 78px;  background: rgba(255,255,255,0.40); animation-delay: 0ms;"></div>
+          <div class="bar" style="width: 10px; height: 130px; background: rgba(255,255,255,0.58); animation-delay: 110ms;"></div>
+          <div class="bar" style="width: 10px; height: 196px; background: {{accent}}; box-shadow: 0 0 18px {{accent}}; animation-delay: 220ms;"></div>
+          <div class="bar" style="width: 10px; height: 158px; background: {{accent}}; box-shadow: 0 0 18px {{accent}}; animation-delay: 330ms;"></div>
+          <div class="bar" style="width: 10px; height: 108px; background: rgba(255,255,255,0.58); animation-delay: 440ms;"></div>
+          <div class="bar" style="width: 10px; height: 66px;  background: rgba(255,255,255,0.40); animation-delay: 550ms;"></div>
+          <div class="bar" style="width: 10px; height: 92px;  background: rgba(255,255,255,0.30); animation-delay: 660ms;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- the two things the remote does that are not on screen -->
+    <div style="display: flex; align-items: center; gap: 18px; margin-top: 24px;">
+      <div class="glass" style="display: flex; align-items: center; gap: 14px; padding: 11px 22px 11px 13px; border-radius: 999px;">
+        <span style="display: inline-flex; align-items: center; justify-content: center;
+          width: 44px; height: 44px; border-radius: 13px; background: rgba(255,255,255,0.18);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.40);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2"
+            stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+        </span>
+        <span style="font-size: 21px; font-weight: 600; color: rgba(255,255,255,0.80);">Einstellungen</span>
+      </div>
+      <div class="glass" style="display: flex; align-items: center; gap: 14px; padding: 11px 22px 11px 13px; border-radius: 999px;">
+        <span style="display: inline-flex; align-items: center; justify-content: center;
+          width: 44px; height: 44px; border-radius: 13px; background: rgba(255,255,255,0.18);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.40);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg>
+        </span>
+        <span style="font-size: 21px; font-weight: 600; color: rgba(255,255,255,0.80);">Halten zum Spulen</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#FFB25C","options":["#FFB25C","#7BE3C4","#FF7AA8","#9BB4FF"],"section":"Farbe"},"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // On the device this is pulled out of the cover art, so it shifts per album.
+    return { accent: this.props.accent ?? '#FFB25C' };
+  }
+}
+</script>
+</body>
+</html>

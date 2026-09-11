@@ -333,9 +333,28 @@ its patches against UxPlay, so the submodule itself stays untouched.
 | Patch | What it changes |
 |---|---|
 | `0001-send-browser-headers-for-media-fetches.patch` | The receiver fetched handed-over video URLs with the stock data source: no referrer, no browser user agent, no cross-protocol redirects. Video hosters reject that, which showed up as sound without a picture. It now sends a Safari user agent, a referrer derived from the media origin, and follows http to https redirects. |
+| `0002-retry-dacp-resolution.patch` | Skip, pause and volume reach the sending device over DACP, whose address is found by mDNS. That lookup ran exactly once, and mDNS on Fire OS fails often, after which every transport key died silently for the rest of the session. It now retries with a backoff and looks the address up again on the next key press. |
 
 These only affect the build-from-source path. The prebuilt APK is upstream's own
 release and does not contain them.
+
+### Building on Windows
+
+The native half of the app is not buildable on a plain Windows machine: FFmpeg is
+compiled through its own `configure` script and OpenSSL from source, so the build
+wants a POSIX shell, perl and make. Upstream builds on Linux, which is why its CI
+is happy. Rather than install a second toolchain, take the compiled libraries out
+of the upstream release and compile only the Kotlin layer, which is all most
+changes touch:
+
+```powershell
+.\scripts\02-build-apk.ps1 -Abis armeabi-v7a -UsePrebuiltNativeLibs
+```
+
+Fetch the upstream APK first, since that is where the libraries come from. The
+result is a 7.9 MB APK signed with your own key, built in minutes rather than
+hours. The native code in it is upstream's build, unchanged, so say so if you pass
+it on. Drop the switch on Linux to compile everything from source.
 
 ## Credits
 
