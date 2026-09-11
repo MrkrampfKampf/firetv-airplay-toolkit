@@ -20,7 +20,12 @@ param(
     # which is where upstream builds, and not on a plain Windows machine. This switch
     # takes the .so files out of the upstream release instead and compiles only the
     # Kotlin layer, which is all a UI change touches. Minutes instead of hours.
-    [switch]$UsePrebuiltNativeLibs
+    [switch]$UsePrebuiltNativeLibs,
+    # While developing against the submodule the patch step is a hazard: it resets
+    # every file a patch touches before reapplying, which throws away edits that are
+    # not in a patch yet. Use this to build the working tree as it stands, then
+    # regenerate the patches from it once the change compiles.
+    [switch]$SkipPatches
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,7 +69,9 @@ $patches = @()
 if (Test-Path $patchDir) {
     $patches = @(Get-ChildItem -Path $patchDir -Filter '*.patch' | Sort-Object Name)
 }
-if ($patches.Count -gt 0) {
+if ($SkipPatches) {
+    Write-Host 'Skipping patches (-SkipPatches): building the working tree as it stands'
+} elseif ($patches.Count -gt 0) {
     Write-Step "Applying $($patches.Count) patch(es) from patches\app"
     foreach ($patch in $patches) {
         # --numstat only parses the patch, so it works whether or not it is applied.

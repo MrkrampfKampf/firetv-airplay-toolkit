@@ -1,12 +1,15 @@
-diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Glass.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Glass.kt
+diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt
 new file mode 100644
-index 0000000..a3c712f
+index 0000000..10cf510
 --- /dev/null
-+++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Glass.kt
-@@ -0,0 +1,130 @@
++++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt
+@@ -0,0 +1,361 @@
 +package io.github.jqssun.airplay.ui
 +
 +import android.graphics.Bitmap
++import androidx.compose.animation.core.Spring
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.core.spring
 +import androidx.compose.foundation.Image
 +import androidx.compose.foundation.background
 +import androidx.compose.foundation.border
@@ -14,33 +17,309 @@ index 0000000..a3c712f
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
 +import androidx.compose.ui.Modifier
++import androidx.compose.ui.composed
++import androidx.compose.ui.focus.onFocusChanged
 +import androidx.compose.ui.draw.clip
++import androidx.compose.ui.draw.drawBehind
++import androidx.compose.ui.draw.drawWithCache
++import androidx.compose.ui.draw.scale
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
 +import androidx.compose.ui.graphics.Brush
 +import androidx.compose.ui.graphics.Color
 +import androidx.compose.ui.graphics.ImageBitmap
 +import androidx.compose.ui.graphics.Shape
 +import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.graphics.drawscope.Stroke
 +import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.text.font.DeviceFontFamilyName
++import androidx.compose.ui.text.font.Font
++import androidx.compose.ui.text.font.FontFamily
++import androidx.compose.ui.unit.Dp
 +import androidx.compose.ui.unit.dp
 +import kotlin.math.roundToInt
 +
 +/**
-+ * The glass the interface is built from, and the cover art it sits on.
++ * The material system the interface is built from.
 + *
-+ * Android 9 has no runtime blur: Modifier.blur and RenderEffect both need API 31,
-+ * and RenderScript is gone. So the softness is bought where it is free, by scaling
-+ * the cover down to a few dozen pixels and letting bilinear filtering do the rest
-+ * on the way back up. One small bitmap per track, no per-frame work, which is what
-+ * a stick with 1 GB of RAM and a PowerVR GE8300 can actually afford.
++ * The point of this file is hierarchy through MATERIAL rather than through boxes.
++ * A panel of acrylic, a moulded plastic key and an illuminated rail are three
++ * different substances that happen to share a palette, so the eye can tell what
++ * matters without anything being outlined or boxed. Everything here is gradients,
++ * strokes and one cached canvas, because Android 9 has no runtime blur, no
++ * RenderEffect and no runtime shaders, and the stick this runs on has a PowerVR
++ * GE8300 and a gigabyte of memory.
 + *
-+ * What makes a pane read as glass rather than a grey box is the edge, not the fill:
-+ * a bright line along the top where light catches the rim, a fill that fades down
-+ * the pane, and a border that is strong at the top and almost gone at the bottom.
++ * Softness is therefore bought by scaling a bitmap down and letting the upscale
++ * blur it, and glow is bought with concentric strokes of falling alpha. Both are
++ * effectively free, and neither costs anything per frame.
 + */
++object Aero {
++    // A restrained late-2000s consumer-electronics palette: cold ambient light,
++    // aqua highlights, one warm-free accent so the glass stays believable.
++    val Void = Color(0xFF03070D)
++    val Deep = Color(0xFF061320)
++    val Cyan = Color(0xFF3FDCFF)
++    val Aqua = Color(0xFF6FF0DC)
++    val Sky = Color(0xFF8FC7FF)
++    val Mint = Color(0xFF9CE8C0)
++    val Violet = Color(0xFFAE93FF)
++    val Ink = Color(0xFFEAF6FF)
++    val InkDim = Color(0xFF9DB6C9)
 +
-+private val GroundColor = Color(0xFF07060C)
++    /** Condensed for labels and readouts, light for anything large. */
++    val Readout = FontFamily(Font(DeviceFontFamilyName("sans-serif-condensed")))
++    val Display = FontFamily(Font(DeviceFontFamilyName("sans-serif-light")))
++}
++
++/* ------------------------------------------------------------------ environment */
++
++/**
++ * The room the interface sits in: two pools of ambient light, a horizon with a
++ * floor under it, a vignette and a fine scan texture. Cached as a single draw, so
++ * it costs one bitmap and nothing per frame.
++ */
++@Composable
++fun AeroEnvironment(modifier: Modifier = Modifier) {
++    Box(
++        modifier.drawWithCache {
++            val w = size.width
++            val h = size.height
++            val horizon = h * 0.63f
++            onDrawBehind {
++                // ground
++                drawRect(
++                    Brush.verticalGradient(
++                        0f to Aero.Deep,
++                        0.58f to Color(0xFF04101B),
++                        1f to Aero.Void,
++                    )
++                )
++                // key light, upper left
++                drawCircle(
++                    brush = Brush.radialGradient(
++                        colors = listOf(Aero.Cyan.copy(alpha = 0.20f), Color.Transparent),
++                        center = Offset(w * 0.18f, h * 0.10f),
++                        radius = w * 0.62f,
++                    ),
++                    radius = w * 0.62f,
++                    center = Offset(w * 0.18f, h * 0.10f),
++                )
++                // fill light, lower right, cooler and weaker
++                drawCircle(
++                    brush = Brush.radialGradient(
++                        colors = listOf(Aero.Aqua.copy(alpha = 0.13f), Color.Transparent),
++                        center = Offset(w * 0.86f, h * 0.86f),
++                        radius = w * 0.50f,
++                    ),
++                    radius = w * 0.50f,
++                    center = Offset(w * 0.86f, h * 0.86f),
++                )
++                // a single violet bounce keeps the palette from going monotone
++                drawCircle(
++                    brush = Brush.radialGradient(
++                        colors = listOf(Aero.Violet.copy(alpha = 0.09f), Color.Transparent),
++                        center = Offset(w * 0.62f, h * 0.05f),
++                        radius = w * 0.34f,
++                    ),
++                    radius = w * 0.34f,
++                    center = Offset(w * 0.62f, h * 0.05f),
++                )
++                // the horizon: a lit edge with the floor falling away below it
++                drawRect(
++                    brush = Brush.verticalGradient(
++                        0f to Color.Transparent,
++                        1f to Color.White.copy(alpha = 0.055f),
++                    ),
++                    topLeft = Offset(0f, horizon - h * 0.16f),
++                    size = Size(w, h * 0.16f),
++                )
++                drawRect(
++                    color = Color.White.copy(alpha = 0.10f),
++                    topLeft = Offset(0f, horizon),
++                    size = Size(w, 1.2f),
++                )
++                drawRect(
++                    brush = Brush.verticalGradient(
++                        0f to Color.White.copy(alpha = 0.045f),
++                        1f to Color.Transparent,
++                    ),
++                    topLeft = Offset(0f, horizon),
++                    size = Size(w, h * 0.24f),
++                )
++                // scan texture, barely there, enough to read as a surface not a fill
++                var y = 0f
++                while (y < h) {
++                    drawRect(
++                        color = Color.White.copy(alpha = 0.012f),
++                        topLeft = Offset(0f, y),
++                        size = Size(w, 1f),
++                    )
++                    y += 3f
++                }
++                // vignette
++                drawRect(
++                    Brush.radialGradient(
++                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)),
++                        center = Offset(w * 0.5f, h * 0.48f),
++                        radius = w * 0.78f,
++                    )
++                )
++            }
++        }
++    )
++}
++
++/* -------------------------------------------------------------------- materials */
++
++/**
++ * Acrylic: a thick translucent slab. Light enters along the top edge, the body
++ * fades as it goes down, and the lower inner edge is dark, which is what makes it
++ * read as having thickness rather than being a tinted rectangle.
++ */
++fun Modifier.acrylic(
++    shape: Shape = RoundedCornerShape(22.dp),
++    tint: Color = Aero.Sky,
++    strength: Float = 1f,
++): Modifier = this
++    .clip(shape)
++    .background(
++        Brush.verticalGradient(
++            0.00f to Color.White.copy(alpha = 0.155f * strength),
++            0.30f to Color.White.copy(alpha = 0.052f * strength),
++            0.74f to Color.White.copy(alpha = 0.030f * strength),
++            1.00f to Color.White.copy(alpha = 0.070f * strength),
++        )
++    )
++    .background(
++        Brush.verticalGradient(
++            0.00f to tint.copy(alpha = 0.09f * strength),
++            0.60f to Color.Transparent,
++        )
++    )
++    .drawBehind {
++        // lit top rim and a darker lower rim, drawn rather than bordered so the
++        // two edges can differ
++        drawRect(
++            brush = Brush.verticalGradient(
++                0f to Color.White.copy(alpha = 0.50f),
++                1f to Color.Transparent,
++            ),
++            size = Size(size.width, 2f),
++        )
++        drawRect(
++            color = Color.Black.copy(alpha = 0.22f),
++            topLeft = Offset(0f, size.height - 1.5f),
++            size = Size(size.width, 1.5f),
++        )
++    }
++
++/**
++ * Moulded glossy plastic: a solid body with a hard specular sweep over the upper
++ * half and a shadowed base. This is the material for things you press.
++ */
++fun Modifier.glossKey(
++    shape: Shape = RoundedCornerShape(50),
++    body: Color = Color(0xFF123048),
++    lit: Boolean = false,
++): Modifier = this
++    .clip(shape)
++    .background(
++        Brush.verticalGradient(
++            0.00f to body.copy(alpha = 0.92f),
++            0.52f to body.copy(alpha = 0.72f),
++            1.00f to Color.Black.copy(alpha = 0.36f),
++        )
++    )
++    .background(
++        // the gloss: bright, short, and cut off hard at the midline
++        Brush.verticalGradient(
++            0.00f to Color.White.copy(alpha = if (lit) 0.46f else 0.30f),
++            0.44f to Color.White.copy(alpha = if (lit) 0.10f else 0.055f),
++            0.46f to Color.Transparent,
++        )
++    )
++
++/**
++ * Illumination: concentric strokes of falling alpha. A cheap stand-in for a bloom
++ * on a platform with no blur, and it happens to look like the light guide around a
++ * physical control.
++ */
++fun Modifier.illuminate(
++    shape: Shape = RoundedCornerShape(50),
++    color: Color = Aero.Cyan,
++    intensity: Float = 1f,
++    spread: Dp = 14.dp,
++): Modifier = this.drawBehind {
++    if (intensity <= 0.01f) return@drawBehind
++    val radius = shape.let { 999f }
++    val steps = 7
++    val max = spread.toPx()
++    for (i in steps downTo 1) {
++        val t = i / steps.toFloat()
++        drawRoundRect(
++            color = color.copy(alpha = 0.16f * intensity * (1f - t) * (1f - t)),
++            topLeft = Offset(-max * t, -max * t),
++            size = Size(size.width + 2 * max * t, size.height + 2 * max * t),
++            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius),
++            style = Stroke(width = max * 0.42f),
++        )
++    }
++}
++
++/**
++ * How focus feels, and the only focus treatment in the app.
++ *
++ * This replaces a two-pixel accent border. The element rises slightly toward the
++ * viewer, a light guide comes on around it and its edge picks up the ambient
++ * colour. Spring rather than tween, so it settles with a little weight instead of
++ * snapping, which is the difference between a remote driving hardware and a remote
++ * driving a web page.
++ */
++fun Modifier.aeroFocus(
++    shape: Shape = RoundedCornerShape(14.dp),
++    glow: Color = Aero.Cyan,
++): Modifier = composed {
++    var focused by remember { mutableStateOf(false) }
++    val lift by animateFloatAsState(
++        targetValue = if (focused) 1f else 0f,
++        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
++        label = "aeroFocus",
++    )
++    onFocusChanged { focused = it.isFocused }
++        .scale(1f + 0.05f * lift)
++        .illuminate(shape = shape, color = glow, intensity = lift, spread = 16.dp)
++        .border(
++            width = 1.5.dp,
++            brush = Brush.verticalGradient(
++                listOf(glow.copy(alpha = 0.85f * lift), glow.copy(alpha = 0.22f * lift))
++            ),
++            shape = shape,
++        )
++}
++
++/**
++ * Holds the sharp cover: a lit rim and a faint bloom so the artwork reads as a
++ * physical panel standing in the room rather than a pasted-in square.
++ */
++fun Modifier.coverTile(shape: Shape = RoundedCornerShape(20.dp)): Modifier = this
++    .illuminate(shape = shape, color = Aero.Sky, intensity = 0.42f, spread = 22.dp)
++    .clip(shape)
++    .background(Color.White.copy(alpha = 0.05f))
++    .border(
++        width = 1.5.dp,
++        brush = Brush.verticalGradient(
++            listOf(Color.White.copy(alpha = 0.48f), Aero.Sky.copy(alpha = 0.12f))
++        ),
++        shape = shape,
++    )
++
++/* ------------------------------------------------------------------ cover ground */
 +
 +/** Cheap softening: shrink far down, then let the upscale blur it. */
 +@Composable
@@ -55,90 +334,77 @@ index 0000000..a3c712f
 +}
 +
 +/**
-+ * Full-bleed cover art as the ground for everything else. Without a cover it is a
-+ * plain dark field, which is the right answer for an idle receiver.
++ * With a cover playing, the art becomes the room's light source: it sits behind
++ * the environment at low opacity so the ambient pools tint toward the album rather
++ * than being replaced by it. Without one, the room is just the room.
 + */
 +@Composable
 +fun CoverBackdrop(cover: Bitmap?, modifier: Modifier = Modifier) {
 +    val softened = rememberSoftened(cover)
-+    Box(modifier.background(GroundColor)) {
++    Box(modifier) {
++        AeroEnvironment(Modifier.fillMaxSize())
 +        if (softened != null) {
 +            Image(
 +                bitmap = softened,
 +                contentDescription = null,
 +                modifier = Modifier.fillMaxSize(),
 +                contentScale = ContentScale.Crop,
-+                alpha = 0.92f,
++                alpha = 0.42f,
++            )
++            Box(
++                Modifier
++                    .fillMaxSize()
++                    .background(
++                        Brush.verticalGradient(
++                            0.00f to Aero.Void.copy(alpha = 0.62f),
++                            0.42f to Aero.Void.copy(alpha = 0.30f),
++                            1.00f to Aero.Void.copy(alpha = 0.80f),
++                        )
++                    )
 +            )
 +        }
-+        // Keeps text legible over a bright cover without flattening a dark one.
-+        Box(
-+            Modifier
-+                .fillMaxSize()
-+                .background(
-+                    Brush.verticalGradient(
-+                        0.00f to Color.Black.copy(alpha = 0.46f),
-+                        0.34f to Color.Black.copy(alpha = 0.18f),
-+                        1.00f to Color.Black.copy(alpha = 0.62f),
-+                    )
-+                )
-+        )
 +    }
 +}
-+
-+/** A pane of glass: fill fades down, rim light strongest along the top edge. */
-+fun Modifier.glass(shape: Shape = RoundedCornerShape(28.dp)): Modifier = this
-+    .clip(shape)
-+    .background(
-+        Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = 0.17f),
-+            0.36f to Color.White.copy(alpha = 0.055f),
-+            0.72f to Color.White.copy(alpha = 0.035f),
-+            1.00f to Color.White.copy(alpha = 0.075f),
-+        )
-+    )
-+    .border(
-+        width = 1.dp,
-+        brush = Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = 0.46f),
-+            0.45f to Color.White.copy(alpha = 0.13f),
-+            1.00f to Color.White.copy(alpha = 0.08f),
-+        ),
-+        shape = shape,
-+    )
-+
-+/** The bottom bar: same material, only the top edge is lit, no side rims. */
-+fun Modifier.glassBar(): Modifier = this
-+    .background(
-+        Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = 0.13f),
-+            1.00f to Color.White.copy(alpha = 0.04f),
-+        )
-+    )
-+    .background(
-+        Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = 0.30f),
-+            0.006f to Color.Transparent,
-+        )
-+    )
-+
-+/** Holds the sharp cover: a thin lit rim so it separates from the softened ground. */
-+fun Modifier.coverTile(shape: Shape = RoundedCornerShape(22.dp)): Modifier = this
-+    .clip(shape)
-+    .background(Color.White.copy(alpha = 0.06f))
-+    .border(
-+        width = 1.dp,
-+        brush = Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = 0.38f),
-+            1.00f to Color.White.copy(alpha = 0.10f),
-+        ),
-+        shape = shape,
-+    )
+diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/LogsScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/LogsScreen.kt
+index 2ea7a0d..3c225d3 100644
+--- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/LogsScreen.kt
++++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/LogsScreen.kt
+@@ -39,10 +39,10 @@ fun LogsScreen(viewModel: MainViewModel) {
+                 style = MaterialTheme.typography.headlineSmall,
+                 modifier = Modifier.weight(1f)
+             )
+-            TextButton(onClick = { viewModel.exportLogs() }, modifier = Modifier.dpadFocus()) {
++            TextButton(onClick = { viewModel.exportLogs() }, modifier = Modifier.aeroFocus()) {
+                 Text(stringResource(R.string.btn_export))
+             }
+-            TextButton(onClick = { viewModel.clearLogs() }, modifier = Modifier.dpadFocus()) {
++            TextButton(onClick = { viewModel.clearLogs() }, modifier = Modifier.aeroFocus()) {
+                 Text(stringResource(R.string.btn_clear))
+             }
+         }
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-index 81e662d..90cf10a 100644
+index 81e662d..856e29d 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-@@ -510,15 +510,17 @@ fun MainScreen(
+@@ -75,6 +75,17 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
+ import androidx.media3.ui.compose.material3.indicator.ProgressSlider
+ import kotlin.math.abs
+ import kotlinx.coroutines.delay
++import androidx.compose.animation.core.LinearEasing
++import androidx.compose.animation.core.RepeatMode
++import androidx.compose.animation.core.Spring
++import androidx.compose.animation.core.animateFloat
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.core.infiniteRepeatable
++import androidx.compose.animation.core.rememberInfiniteTransition
++import androidx.compose.animation.core.spring
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.border
++import androidx.compose.ui.unit.sp
+ 
+ private enum class Tab(val labelRes: Int, val icon: ImageVector) {
+     OVERVIEW(R.string.tab_overview, Icons.Default.Cast),
+@@ -510,33 +521,46 @@ fun MainScreen(
              onPip = onPip
          )
      } else {
@@ -147,18 +413,37 @@ index 81e662d..90cf10a 100644
 +            containerColor = Color.Transparent,
              bottomBar = {
 -                Column {
-+                Column(modifier = Modifier.glassBar()) {
++                // A control strip that floats clear of the edge, not a bar welded to
++                // the bottom of the screen.
++                Column(
++                    modifier = Modifier.fillMaxWidth(),
++                    horizontalAlignment = Alignment.CenterHorizontally
++                ) {
                      AudioMiniController(
                          viewModel,
                          visible = audioOnly && connections > 0 && tab != Tab.OVERVIEW,
                          onClick = { tab = Tab.OVERVIEW }
                      )
 -                    NavigationBar {
-+                    NavigationBar(containerColor = Color.Transparent) {
++                    Row(
++                        modifier = Modifier
++                            .padding(bottom = 26.dp)
++                            .acrylic(RoundedCornerShape(50), Aero.Sky)
++                            .padding(horizontal = 10.dp, vertical = 8.dp),
++                        horizontalArrangement = Arrangement.spacedBy(4.dp),
++                        verticalAlignment = Alignment.CenterVertically
++                    ) {
                          Tab.entries.forEach { t ->
-                             NavigationBarItem(
-                                 selected = tab == t,
-@@ -532,11 +534,16 @@ fun MainScreen(
+-                            NavigationBarItem(
+-                                selected = tab == t,
+-                                onClick = { tab = t },
+-                                icon = { Icon(t.icon, null) },
+-                                label = { Text(stringResource(t.labelRes)) },
+-                                modifier = Modifier.dpadFocus()
+-                            )
++                            NavKey(selected = tab == t, tab = t, onClick = { tab = t })
+                         }
+                     }
                  }
              }
          ) { padding ->
@@ -180,32 +465,192 @@ index 81e662d..90cf10a 100644
              }
          }
      }
-@@ -611,8 +618,7 @@ private fun OverviewContent(
-                 .fillMaxWidth()
-                 .weight(1f)
-                 .padding(16.dp)
--                .clip(RoundedCornerShape(16.dp))
--                .background(MaterialTheme.colorScheme.surfaceVariant),
-+                .glass(RoundedCornerShape(28.dp)),
-             contentAlignment = Alignment.Center
-         ) {
-             val connecting = state == ServerState.RUNNING && connections > 0 &&
-@@ -692,11 +698,11 @@ private fun OverviewContent(
-         }
+@@ -604,17 +628,43 @@ private fun OverviewContent(
+         if (tv) startFocus.requestFocus()
+     }
  
-         // controls
--        Card(
-+        Box(
+-    Column(modifier = Modifier.fillMaxSize()) {
+-        // content area
++    // One room, one screen standing in it, one piece of hardware docked beside it.
++    // Deliberately not three stacked cards: the display carries the hierarchy, the
++    // module is a small object next to it, and the strip floats clear of both.
++    Column(
++        modifier = Modifier
++            .fillMaxSize()
++            .padding(start = 60.dp, end = 60.dp, top = 36.dp, bottom = 10.dp)
++    ) {
+         Box(
              modifier = Modifier
                  .fillMaxWidth()
+-                .weight(1f)
+-                .padding(16.dp)
+-                .clip(RoundedCornerShape(16.dp))
+-                .background(MaterialTheme.colorScheme.surfaceVariant),
++                .weight(1f),
+             contentAlignment = Alignment.Center
+         ) {
++            Box(
++                modifier = Modifier
++                    // height first: the panel has to fit the room, not the other way
++                    // round, or it runs off the top of the screen
++                    .fillMaxHeight()
++                    .aspectRatio(16f / 9f)
++                    // light spilling off the panel onto the room behind it
++                    .illuminate(RoundedCornerShape(20.dp), Aero.Cyan, 0.55f, 34.dp)
++                    .clip(RoundedCornerShape(20.dp))
++                    .background(Color.Black.copy(alpha = 0.62f))
++                    .border(
++                        width = 1.5.dp,
++                        brush = Brush.verticalGradient(
++                            listOf(
++                                Color.White.copy(alpha = 0.55f),
++                                Aero.Cyan.copy(alpha = 0.16f),
++                                Color.White.copy(alpha = 0.10f)
++                            )
++                        ),
++                        shape = RoundedCornerShape(20.dp)
++                    ),
++                contentAlignment = Alignment.Center
++            ) {
+             val connecting = state == ServerState.RUNNING && connections > 0 &&
+                 !mirroringActive && !videoPlaybackActive
+             if (showAudioMode && state == ServerState.RUNNING && connections > 0) {
+@@ -628,8 +678,8 @@ private fun OverviewContent(
+                         Icon(
+                             imageVector = if (connections > 0) Icons.Default.CastConnected else Icons.Default.Cast,
+                             contentDescription = null,
+-                            modifier = Modifier.size(64.dp),
+-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
++                            modifier = Modifier.size(58.dp),
++                            tint = Aero.Cyan.copy(alpha = 0.42f)
+                         )
+                         Spacer(Modifier.height(12.dp))
+                         Text(
+@@ -637,9 +687,11 @@ private fun OverviewContent(
+                                 ServerState.STOPPED -> stringResource(R.string.server_stopped)
+                                 ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
+                                 ServerState.ERROR -> stringResource(R.string.error_starting_server)
+-                            },
+-                            style = MaterialTheme.typography.bodyLarge,
+-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
++                            }.uppercase(),
++                            fontFamily = Aero.Readout,
++                            fontSize = 17.sp,
++                            letterSpacing = 3.sp,
++                            color = Aero.InkDim.copy(alpha = 0.82f)
+                         )
+                     }
+                 } else if (connecting) {
+@@ -651,13 +703,13 @@ private fun OverviewContent(
+                 }
+                 if (state == ServerState.RUNNING && mirroringActive) {
+                     Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+-                        IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
++                        IconButton(onClick = onPip, modifier = Modifier.aeroFocus()) {
+                             Icon(
+                                 painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
+                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                             )
+                         }
+-                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus()) {
++                        IconButton(onClick = onFullscreen, modifier = Modifier.aeroFocus()) {
+                             Icon(
+                                 Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
+                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+@@ -689,64 +741,21 @@ private fun OverviewContent(
+                     )
+                 }
+             }
++            }
+         }
+ 
+-        // controls
+-        Card(
+-            modifier = Modifier
+-                .fillMaxWidth()
 -                .padding(16.dp),
 -            shape = RoundedCornerShape(16.dp)
-+                .padding(16.dp)
-+                .glass(RoundedCornerShape(24.dp))
+-        ) {
+-            Column(modifier = Modifier.padding(20.dp)) {
+-                Row(
+-                    modifier = Modifier.fillMaxWidth(),
+-                    horizontalArrangement = Arrangement.SpaceBetween,
+-                    verticalAlignment = Alignment.CenterVertically
+-                ) {
+-                    Column {
+-                        Text(
+-                            text = serverName,
+-                            style = MaterialTheme.typography.titleMedium,
+-                            fontWeight = FontWeight.SemiBold
+-                        )
+-                        Spacer(Modifier.height(2.dp))
+-                        val statusColor by animateColorAsState(
+-                            when (state) {
+-                                ServerState.RUNNING -> MaterialTheme.colorScheme.primary
+-                                ServerState.ERROR -> MaterialTheme.colorScheme.error
+-                                ServerState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
+-                            }, label = "status"
+-                        )
+-                        Text(
+-                            text = when (state) {
+-                                ServerState.RUNNING -> stringResource(R.string.connected_count, connections)
+-                                ServerState.ERROR -> stringResource(R.string.error_label)
+-                                ServerState.STOPPED -> stringResource(R.string.stopped_label)
+-                            },
+-                            style = MaterialTheme.typography.bodySmall,
+-                            color = statusColor
+-                        )
+-                    }
++        Spacer(Modifier.height(22.dp))
+ 
+-                    FilledTonalButton(
+-                        onClick = {
+-                            if (state == ServerState.RUNNING) viewModel.stopServer()
+-                            else viewModel.startServer()
+-                        },
+-                        modifier = Modifier.dpadFocus().focusRequester(startFocus)
+-                    ) {
+-                        Icon(
+-                            imageVector = if (state == ServerState.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+-                            contentDescription = null,
+-                            modifier = Modifier.size(20.dp)
+-                        )
+-                        Spacer(Modifier.width(6.dp))
+-                        Text(if (state == ServerState.RUNNING) stringResource(R.string.btn_stop) else stringResource(R.string.btn_start))
+-                    }
+-                }
+-            }
+-        }
++        ConnectionModule(
++            state = state,
++            connections = connections,
++            serverName = serverName,
++            startFocus = startFocus,
++            onToggle = {
++                if (state == ServerState.RUNNING) viewModel.stopServer() else viewModel.startServer()
++            },
++            modifier = Modifier.align(Alignment.Start)
++        )
+     }
+ }
+ 
+@@ -782,13 +791,13 @@ private fun FullscreenVideo(
+             modifier = Modifier.align(Alignment.TopEnd)
          ) {
-             Column(modifier = Modifier.padding(20.dp)) {
-                 Row(
-@@ -880,8 +886,7 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
+             Row(modifier = Modifier.padding(8.dp)) {
+-                IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
++                IconButton(onClick = onPip, modifier = Modifier.aeroFocus()) {
+                     Icon(
+                         painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
+                         tint = Color.White.copy(alpha = 0.7f)
+                     )
+                 }
+-                IconButton(onClick = onExitFullscreen, modifier = Modifier.dpadFocus()) {
++                IconButton(onClick = onExitFullscreen, modifier = Modifier.aeroFocus()) {
+                     Icon(
+                         Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
+                         tint = Color.White.copy(alpha = 0.7f)
+@@ -880,8 +889,7 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
                  .weight(1f, fill = false)
                  .aspectRatio(1f)
                  .fillMaxWidth(0.7f)
@@ -215,6 +660,262 @@ index 81e662d..90cf10a 100644
              contentAlignment = Alignment.Center
          ) {
              if (track.coverArt != null) {
+@@ -954,13 +962,13 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
+                     onBegin = { viewModel.audioScanBegin(false) },
+                     onEnd = { viewModel.audioScanEnd() }
+                 )
+-                PreviousButton(player, modifier = Modifier.dpadFocus())
++                PreviousButton(player, modifier = Modifier.aeroFocus())
+                 PlayPauseButton(
+                     player,
+-                    modifier = Modifier.size(63.dp).dpadFocus(CircleShape),
++                    modifier = Modifier.size(63.dp).aeroFocus(CircleShape),
+                     iconSize = 40.dp
+                 )
+-                NextButton(player, modifier = Modifier.dpadFocus())
++                NextButton(player, modifier = Modifier.aeroFocus())
+                 HoldScanButton(
+                     icon = Icons.Default.FastForward,
+                     contentDescription = stringResource(R.string.cd_fast_forward),
+@@ -974,13 +982,13 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
+                 verticalAlignment = Alignment.CenterVertically,
+                 modifier = Modifier.fillMaxWidth()
+             ) {
+-                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.dpadFocus()) {
++                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.aeroFocus()) {
+                     Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
+                 }
+-                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.dpadFocus()) {
++                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.aeroFocus()) {
+                     Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
+                 }
+-                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.dpadFocus()) {
++                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.aeroFocus()) {
+                     Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
+                 }
+             }
+@@ -1039,3 +1047,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
+ private fun formatDecode(meanUs: Int, maxUs: Int, held: Int, errors: Int): String =
+     (if (meanUs == 0) "held=$held"
+     else "%.1f/%.1f ms held=%d".format(meanUs / 1000.0, maxUs / 1000.0, held)) + " errs=$errors"
++
++/**
++ * A key on the control strip. Unselected it is bare; selected it becomes a lit pane
++ * of acrylic. That is a state readable from across a room without resorting to a
++ * coloured pill behind the label.
++ */
++@Composable
++private fun NavKey(selected: Boolean, tab: Tab, onClick: () -> Unit) {
++    val lit by animateFloatAsState(
++        targetValue = if (selected) 1f else 0f,
++        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
++        label = "navKey"
++    )
++    Row(
++        modifier = Modifier
++            .aeroFocus(RoundedCornerShape(50), Aero.Cyan)
++            .clip(RoundedCornerShape(50))
++            .background(
++                Brush.verticalGradient(
++                    listOf(
++                        Color.White.copy(alpha = 0.22f * lit),
++                        Color.White.copy(alpha = 0.05f * lit)
++                    )
++                )
++            )
++            .illuminate(RoundedCornerShape(50), Aero.Cyan, 0.5f * lit, 12.dp)
++            .clickable(onClick = onClick)
++            .padding(horizontal = 26.dp, vertical = 12.dp),
++        verticalAlignment = Alignment.CenterVertically
++    ) {
++        Icon(
++            tab.icon,
++            contentDescription = null,
++            modifier = Modifier.size(24.dp),
++            tint = Aero.Ink.copy(alpha = 0.52f + 0.48f * lit)
++        )
++        Spacer(Modifier.width(10.dp))
++        Text(
++            text = stringResource(tab.labelRes).uppercase(),
++            fontFamily = Aero.Readout,
++            fontSize = 15.sp,
++            letterSpacing = 2.sp,
++            color = Aero.Ink.copy(alpha = 0.52f + 0.48f * lit)
++        )
++    }
++}
++
++/**
++ * The receiver as a small piece of hardware rather than a status card: a lamp that
++ * breathes while it is listening, a readout, and one moulded key you press. It is
++ * sized to its contents and docked in a corner, so it never reads as a second panel
++ * competing with the display.
++ */
++@Composable
++private fun ConnectionModule(
++    state: ServerState,
++    connections: Int,
++    serverName: String,
++    startFocus: FocusRequester,
++    onToggle: () -> Unit,
++    modifier: Modifier = Modifier
++) {
++    val live = state == ServerState.RUNNING
++    val lampColor = when (state) {
++        ServerState.RUNNING -> if (connections > 0) Aero.Aqua else Aero.Cyan
++        ServerState.ERROR -> Color(0xFFFF7A7A)
++        ServerState.STOPPED -> Aero.InkDim
++    }
++    // A listening receiver breathes; a stopped one sits dark.
++    val pulse = rememberInfiniteTransition(label = "lamp")
++    val breath by pulse.animateFloat(
++        initialValue = 0.40f,
++        targetValue = 1f,
++        animationSpec = infiniteRepeatable(tween(1900, easing = LinearEasing), RepeatMode.Reverse),
++        label = "breath"
++    )
++    val lamp = if (live) breath else 0.18f
++
++    Row(
++        modifier = modifier
++            .acrylic(RoundedCornerShape(20.dp), Aero.Sky)
++            .padding(start = 24.dp, end = 18.dp, top = 18.dp, bottom = 18.dp),
++        verticalAlignment = Alignment.CenterVertically
++    ) {
++        Box(
++            modifier = Modifier
++                .size(13.dp)
++                .illuminate(CircleShape, lampColor, lamp, 11.dp)
++                .clip(CircleShape)
++                .background(lampColor.copy(alpha = 0.30f + 0.70f * lamp))
++        )
++        Spacer(Modifier.width(18.dp))
++        Column {
++            Text(
++                text = when (state) {
++                    ServerState.RUNNING -> stringResource(R.string.connected_count, connections)
++                    ServerState.ERROR -> stringResource(R.string.error_label)
++                    ServerState.STOPPED -> stringResource(R.string.stopped_label)
++                }.uppercase(),
++                fontFamily = Aero.Readout,
++                fontSize = 14.sp,
++                letterSpacing = 2.4.sp,
++                color = lampColor.copy(alpha = 0.92f)
++            )
++            Spacer(Modifier.height(3.dp))
++            Text(
++                text = serverName,
++                fontFamily = Aero.Display,
++                fontSize = 27.sp,
++                color = Aero.Ink
++            )
++        }
++        Spacer(Modifier.width(34.dp))
++        Row(
++            modifier = Modifier
++                .focusRequester(startFocus)
++                .aeroFocus(RoundedCornerShape(50), if (live) Color(0xFFFF9A8A) else Aero.Aqua)
++                .glossKey(
++                    RoundedCornerShape(50),
++                    body = if (live) Color(0xFF3E1A22) else Color(0xFF0F3A3C),
++                    lit = live
++                )
++                .clickable(onClick = onToggle)
++                .padding(horizontal = 26.dp, vertical = 14.dp),
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            Icon(
++                imageVector = if (live) Icons.Default.Stop else Icons.Default.PlayArrow,
++                contentDescription = null,
++                modifier = Modifier.size(19.dp),
++                tint = Aero.Ink
++            )
++            Spacer(Modifier.width(9.dp))
++            Text(
++                text = (if (live) stringResource(R.string.btn_stop) else stringResource(R.string.btn_start)).uppercase(),
++                fontFamily = Aero.Readout,
++                fontSize = 15.sp,
++                letterSpacing = 2.sp,
++                color = Aero.Ink
++            )
++        }
++    }
++}
+diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/SettingsScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/SettingsScreen.kt
+index 554fe10..c6a66a8 100644
+--- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/SettingsScreen.kt
++++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/SettingsScreen.kt
+@@ -134,7 +134,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
+         val needsOverlayPermission = launchOnConnect && !hasOverlayPermission
+         ListItem(
+             modifier = Modifier
+-                .dpadFocus(RectangleShape)
++                .aeroFocus(RectangleShape)
+                 .toggleable(
+                     value = launchOnConnect,
+                     role = Role.Switch,
+@@ -325,7 +325,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
+                             onValueChangeFinished = { viewModel.setAudioLatencyMs(sliderVal.roundToInt()) },
+                             valueRange = 0f..1000f,
+                             steps = 19,
+-                            modifier = Modifier.dpadFocus().dpadAdjust(
++                            modifier = Modifier.aeroFocus().dpadAdjust(
+                                 onLeft = { viewModel.setAudioLatencyMs((audioLatencyMs - 50).coerceIn(0, 1000)) },
+                                 onRight = { viewModel.setAudioLatencyMs((audioLatencyMs + 50).coerceIn(0, 1000)) }
+                             )
+@@ -353,7 +353,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
+                             onValueChangeFinished = { viewModel.setAudioAdaptiveStep(stepVal.roundToInt()) },
+                             valueRange = 0f..maxStep.toFloat(),
+                             steps = maxStep - 1,
+-                            modifier = Modifier.dpadFocus().dpadAdjust(
++                            modifier = Modifier.aeroFocus().dpadAdjust(
+                                 onLeft = { viewModel.setAudioAdaptiveStep((audioAdaptiveStep - 1).coerceIn(0, maxStep)) },
+                                 onRight = { viewModel.setAudioAdaptiveStep((audioAdaptiveStep + 1).coerceIn(0, maxStep)) }
+                             )
+@@ -457,14 +457,14 @@ private fun SettingResolution(
+                             onValueChange(key)
+                         },
+                         label = { Text(label) },
+-                        modifier = Modifier.dpadFocus()
++                        modifier = Modifier.aeroFocus()
+                     )
+                     presets.forEach { (key, label) -> presetChip(key, label) }
+                     FilterChip(
+                         selected = !isPreset || editing,
+                         onClick = { editing = true },
+                         label = { Text(stringResource(R.string.chip_custom)) },
+-                        modifier = Modifier.dpadFocus()
++                        modifier = Modifier.aeroFocus()
+                     )
+                     devicePresets.forEach { (key, label) -> presetChip(key, label) }
+                 }
+@@ -572,7 +572,7 @@ private fun SettingChipField(
+                         selected = !isPreset || editing,
+                         onClick = { editing = true },
+                         label = { Text(stringResource(R.string.chip_custom)) },
+-                        modifier = Modifier.dpadFocus()
++                        modifier = Modifier.aeroFocus()
+                     )
+                 }
+                 if (editing || !isPreset) {
+@@ -614,7 +614,7 @@ private fun ChipRow(
+                 selected = value == key,
+                 onClick = { onSelect(key) },
+                 label = { Text(label) },
+-                modifier = Modifier.dpadFocus()
++                modifier = Modifier.aeroFocus()
+             )
+         }
+         trailing()
+@@ -650,7 +650,7 @@ private fun SettingSwitch(
+ ) {
+     ListItem(
+         modifier = Modifier
+-            .dpadFocus(RectangleShape)
++            .aeroFocus(RectangleShape)
+             .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+         headlineContent = { Text(title) },
+         supportingContent = { Text(description) },
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt
 index 4f5f226..5bea4b6 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt
