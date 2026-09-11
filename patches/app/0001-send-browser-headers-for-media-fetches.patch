@@ -1,0 +1,87 @@
+diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt b/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt
+index 83b795e..53e9ecc 100644
+--- a/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt
++++ b/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt
+@@ -12,7 +12,10 @@ import androidx.media3.common.PlaybackParameters
+ import androidx.media3.common.Player
+ import androidx.media3.common.Timeline
+ import androidx.media3.common.VideoSize
++import androidx.media3.datasource.DefaultHttpDataSource
+ import androidx.media3.exoplayer.ExoPlayer
++import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
++import androidx.media3.exoplayer.source.MediaSource
+ 
+ // rate is 0 while buffering; speed is the configured rate regardless of pause state
+ // native reads the effective rate, overlay reads playWhenReady + speed + skipSilence
+@@ -48,7 +51,8 @@ class AirPlayVideoPlayer(private val context: Context) {
+ 
+     private val _listener = object : Player.Listener {
+         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+-            Log.w(TAG, "playback error", error)
++            // the code name is what tells a refused fetch apart from a decoder fault
++            Log.w(TAG, "playback error ${error.errorCodeName}", error)
+             onEnded?.invoke()
+         }
+         override fun onPlaybackStateChanged(state: Int) {
+@@ -71,7 +75,9 @@ class AirPlayVideoPlayer(private val context: Context) {
+     fun play(location: String, startPositionSeconds: Float) = mainHandler.post {
+         // recycling must not report the stopped sentinel: senders poll right after /play
+         _stopInternal(reportStopped = false)
+-        val p = ExoPlayer.Builder(context).build().also {
++        val p = ExoPlayer.Builder(context)
++            .setMediaSourceFactory(_mediaSourceFactory(location))
++            .build().also {
+             it.addListener(_listener)
+             pendingSurface?.let { s -> it.setVideoSurface(s) }
+         }
+@@ -83,6 +89,37 @@ class AirPlayVideoPlayer(private val context: Context) {
+         mainHandler.postDelayed(_reportTick, REPORT_INTERVAL_MS)
+     }
+ 
++    // Senders hand over a bare url and the receiver fetches it itself, without the
++    // cookies, referrer or user agent of the browser session that produced it. Video
++    // hosters routinely reject that: they gate on the user agent, require a referrer
++    // from their own origin, and bounce between http and https. The stock data source
++    // fails all three, and because the mirrored audio keeps running the symptom looks
++    // like "sound but no picture" rather than a failed download.
++    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
++    private fun _mediaSourceFactory(location: String): MediaSource.Factory {
++        val http = DefaultHttpDataSource.Factory()
++            .setUserAgent(BROWSER_USER_AGENT)
++            .setAllowCrossProtocolRedirects(true)
++            .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
++            .setReadTimeoutMs(READ_TIMEOUT_MS)
++        _originOf(location)?.let { origin ->
++            http.setDefaultRequestProperties(mapOf("Referer" to "$origin/", "Origin" to origin))
++        }
++        return DefaultMediaSourceFactory(http)
++    }
++
++    // scheme://host[:port] of the media url. The page it was embedded in is never
++    // sent, so its own origin is the closest referrer we can offer, and it is the one
++    // most hosters actually check for.
++    private fun _originOf(location: String): String? = runCatching {
++        val uri = android.net.Uri.parse(location)
++        val scheme = uri.scheme?.lowercase() ?: return@runCatching null
++        if (scheme != "http" && scheme != "https") return@runCatching null
++        val host = uri.host ?: return@runCatching null
++        val port = if (uri.port > 0) ":${uri.port}" else ""
++        "$scheme://$host$port"
++    }.getOrNull()
++
+     fun scrub(positionSeconds: Float) = mainHandler.post {
+         player?.seekTo((positionSeconds * 1000).toLong())
+     }
+@@ -181,5 +218,12 @@ class AirPlayVideoPlayer(private val context: Context) {
+     companion object {
+         private const val TAG = "AirPlayVideoPlayer"
+         private const val REPORT_INTERVAL_MS = 250L
++        private const val CONNECT_TIMEOUT_MS = 20_000
++        private const val READ_TIMEOUT_MS = 20_000
++
++        // Mirrors the Safari session the url came from, which is what hosters expect.
++        private const val BROWSER_USER_AGENT =
++            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 " +
++                "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+     }
+ }

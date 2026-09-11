@@ -49,6 +49,32 @@ if (-not (Test-Path (Join-Path $RepoRoot 'app\build.gradle.kts'))) {
     throw "The airplay-server submodule is empty. Run: git submodule update --init --recursive"
 }
 
+# ------------------------------------------------------- our patches on the app
+# The submodule is upstream's code, so fixes of our own live as patch files here
+# and are reapplied on every build. This mirrors how upstream carries its own
+# patches against UxPlay, and it keeps the submodule at its pinned commit.
+$patchDir = Join-Path $ProjectRoot 'patches\app'
+$patches = @()
+if (Test-Path $patchDir) {
+    $patches = @(Get-ChildItem -Path $patchDir -Filter '*.patch' | Sort-Object Name)
+}
+if ($patches.Count -gt 0) {
+    Write-Step "Applying $($patches.Count) patch(es) from patches\app"
+    foreach ($patch in $patches) {
+        # --numstat only parses the patch, so it works whether or not it is applied.
+        $numstat = & git -C $RepoRoot apply --numstat $patch.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Cannot read patch $($patch.Name). It probably no longer matches the pinned submodule commit." }
+        $files = @($numstat | ForEach-Object { ($_ -split "`t")[-1] } | Where-Object { $_ })
+        # Reset what the patch touches first, so rebuilding never stacks it twice.
+        foreach ($file in $files) { & git -C $RepoRoot checkout -- $file }
+        & git -C $RepoRoot apply $patch.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($patch.Name)" }
+        Write-Host "  $($patch.Name) -> $($files -join ', ')"
+    }
+} else {
+    Write-Host 'No patches in patches\app, building upstream unchanged'
+}
+
 # ------------------------------------------------- make the ABI list settable
 # Upstream hardcodes three ABIs. Turn that into a Gradle property so we can
 # build only what a Fire TV runs. Idempotent: re-running changes nothing.

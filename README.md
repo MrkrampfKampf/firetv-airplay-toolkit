@@ -324,6 +324,19 @@ adb logcat -s AirPlay:V *:S
 You can re-run any of them safely. They reuse what is already downloaded and
 never redo finished work.
 
+### Patches in this repository
+
+`patches/app` holds fixes of our own against the pinned `airplay-server` commit.
+`02-build-apk.ps1` reapplies them on every build, the same way upstream carries
+its patches against UxPlay, so the submodule itself stays untouched.
+
+| Patch | What it changes |
+|---|---|
+| `0001-send-browser-headers-for-media-fetches.patch` | The receiver fetched handed-over video URLs with the stock data source: no referrer, no browser user agent, no cross-protocol redirects. Video hosters reject that, which showed up as sound without a picture. It now sends a Safari user agent, a referrer derived from the media origin, and follows http to https redirects. |
+
+These only affect the build-from-source path. The prebuilt APK is upstream's own
+release and does not contain them.
+
 ## Credits
 
 * [UxPlay](https://github.com/FDH2/UxPlay) by FDH2 and contributors, the AirPlay and RAOP implementation
