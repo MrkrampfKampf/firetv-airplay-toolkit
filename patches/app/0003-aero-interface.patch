@@ -653,10 +653,10 @@ index 0000000..9579b9b
 +    }
 +}
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-index 81e662d..432d425 100644
+index 81e662d..b59467b 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-@@ -75,6 +75,21 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
+@@ -75,6 +75,22 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
  import androidx.media3.ui.compose.material3.indicator.ProgressSlider
  import kotlin.math.abs
  import kotlinx.coroutines.delay
@@ -675,10 +675,11 @@ index 81e662d..432d425 100644
 +import androidx.compose.foundation.lazy.LazyColumn
 +import androidx.compose.foundation.lazy.items
 +import androidx.compose.foundation.lazy.rememberLazyListState
++import android.os.SystemClock
  
  private enum class Tab(val labelRes: Int, val icon: ImageVector) {
      OVERVIEW(R.string.tab_overview, Icons.Default.Cast),
-@@ -510,33 +525,46 @@ fun MainScreen(
+@@ -510,33 +526,46 @@ fun MainScreen(
              onPip = onPip
          )
      } else {
@@ -739,7 +740,7 @@ index 81e662d..432d425 100644
              }
          }
      }
-@@ -604,17 +632,43 @@ private fun OverviewContent(
+@@ -604,22 +633,52 @@ private fun OverviewContent(
          if (tv) startFocus.requestFocus()
      }
  
@@ -763,6 +764,15 @@ index 81e662d..432d425 100644
 +                .weight(1f),
              contentAlignment = Alignment.Center
          ) {
+-            val connecting = state == ServerState.RUNNING && connections > 0 &&
+-                !mirroringActive && !videoPlaybackActive
+-            if (showAudioMode && state == ServerState.RUNNING && connections > 0) {
++            val audioScreen = showAudioMode && state == ServerState.RUNNING && connections > 0
++            if (audioScreen) {
++                // Music gets the whole room. Boxed into the 16:9 panel meant for
++                // mirrored video, the lyrics came out three words wide.
+                 NowPlayingContent(viewModel)
+             } else {
 +            Box(
 +                modifier = Modifier
 +                    // height first: the panel has to fit the room, not the other way
@@ -786,10 +796,13 @@ index 81e662d..432d425 100644
 +                    ),
 +                contentAlignment = Alignment.Center
 +            ) {
-             val connecting = state == ServerState.RUNNING && connections > 0 &&
-                 !mirroringActive && !videoPlaybackActive
-             if (showAudioMode && state == ServerState.RUNNING && connections > 0) {
-@@ -628,8 +682,8 @@ private fun OverviewContent(
++            val connecting = state == ServerState.RUNNING && connections > 0 &&
++                !mirroringActive && !videoPlaybackActive
++            run {
+                 if (state == ServerState.RUNNING && (mirroringActive || idlePreview)) {
+                     video()
+                 }
+@@ -628,8 +687,8 @@ private fun OverviewContent(
                          Icon(
                              imageVector = if (connections > 0) Icons.Default.CastConnected else Icons.Default.Cast,
                              contentDescription = null,
@@ -800,7 +813,7 @@ index 81e662d..432d425 100644
                          )
                          Spacer(Modifier.height(12.dp))
                          Text(
-@@ -637,9 +691,11 @@ private fun OverviewContent(
+@@ -637,9 +696,11 @@ private fun OverviewContent(
                                  ServerState.STOPPED -> stringResource(R.string.server_stopped)
                                  ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
                                  ServerState.ERROR -> stringResource(R.string.error_starting_server)
@@ -815,7 +828,7 @@ index 81e662d..432d425 100644
                          )
                      }
                  } else if (connecting) {
-@@ -651,13 +707,13 @@ private fun OverviewContent(
+@@ -651,13 +712,13 @@ private fun OverviewContent(
                  }
                  if (state == ServerState.RUNNING && mirroringActive) {
                      Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
@@ -831,10 +844,11 @@ index 81e662d..432d425 100644
                              Icon(
                                  Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
                                  tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-@@ -689,64 +745,21 @@ private fun OverviewContent(
+@@ -689,64 +750,22 @@ private fun OverviewContent(
                      )
                  }
              }
++            }
 +            }
          }
  
@@ -908,7 +922,7 @@ index 81e662d..432d425 100644
      }
  }
  
-@@ -782,13 +795,13 @@ private fun FullscreenVideo(
+@@ -782,13 +801,13 @@ private fun FullscreenVideo(
              modifier = Modifier.align(Alignment.TopEnd)
          ) {
              Row(modifier = Modifier.padding(8.dp)) {
@@ -924,7 +938,7 @@ index 81e662d..432d425 100644
                      Icon(
                          Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
                          tint = Color.White.copy(alpha = 0.7f)
-@@ -866,128 +879,282 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
+@@ -866,128 +885,303 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
  @AndroidxOptIn(UnstableApi::class)
  private fun NowPlayingContent(viewModel: MainViewModel) {
      val track by viewModel.trackInfo.collectAsState()
@@ -942,12 +956,30 @@ index 81e662d..432d425 100644
 +        }
 +    }
 +
-+    // The player owns the clock; poll it rather than keeping a second one.
++    // The sender only reports a position now and then, so reading it on a timer
++    // makes the highlight arrive in visible steps behind the music. Take a reported
++    // position as an anchor and run a real clock forward from it, resyncing only
++    // when the two drift apart or playback stops. LYRIC_LEAD_MS then lights a line
++    // just before it is sung, which is what reads as being on the beat rather than
++    // chasing it.
 +    var positionMs by remember { mutableStateOf(0L) }
 +    LaunchedEffect(player) {
++        var anchor = 0L
++        var anchoredAt = SystemClock.elapsedRealtime()
 +        while (player != null) {
-+            positionMs = player.currentPosition
-+            delay(200)
++            val reported = player.currentPosition
++            val playing = player.isPlaying
++            val extrapolated = anchor + (SystemClock.elapsedRealtime() - anchoredAt)
++            if (!playing || kotlin.math.abs(reported - extrapolated) > 500) {
++                anchor = reported
++                anchoredAt = SystemClock.elapsedRealtime()
++            }
++            positionMs = if (playing) {
++                anchor + (SystemClock.elapsedRealtime() - anchoredAt) + LYRIC_LEAD_MS
++            } else {
++                reported
++            }
++            delay(50)
 +        }
 +    }
 +
@@ -984,7 +1016,7 @@ index 81e662d..432d425 100644
 -                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
 +        // Size the sleeve off both axes. Squeezing a square into a 16:9 column by
 +        // width alone is what cut the artwork in half.
-+        val coverSide = minOf(maxWidth * 0.27f, maxHeight * 0.54f)
++        val coverSide = minOf(maxWidth * 0.30f, maxHeight * 0.62f)
 +
 +        Row(modifier = Modifier.fillMaxSize()) {
 +
@@ -1302,10 +1334,13 @@ index 81e662d..432d425 100644
 +    }
 +}
 +
++/** Lights a lyric line slightly before it is sung; anything less reads as lagging. */
++private const val LYRIC_LEAD_MS = 320L
++
  private const val VIDEO_OVERLAY_HIDE_MS = 4000L
  
  @Composable
-@@ -1039,3 +1206,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
+@@ -1039,3 +1233,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
  private fun formatDecode(meanUs: Int, maxUs: Int, held: Int, errors: Int): String =
      (if (meanUs == 0) "held=$held"
      else "%.1f/%.1f ms held=%d".format(meanUs / 1000.0, maxUs / 1000.0, held)) + " errs=$errors"
