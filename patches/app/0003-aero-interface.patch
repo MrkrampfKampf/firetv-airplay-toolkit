@@ -402,10 +402,10 @@ index 2ea7a0d..3c225d3 100644
          }
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt
 new file mode 100644
-index 0000000..6ddb1fd
+index 0000000..734c7e2
 --- /dev/null
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,363 @@
 +package io.github.jqssun.airplay.ui
 +
 +import android.util.Log
@@ -415,6 +415,7 @@ index 0000000..6ddb1fd
 +import org.json.JSONArray
 +import org.json.JSONObject
 +import java.io.BufferedReader
++import java.io.File
 +import java.net.HttpURLConnection
 +import java.net.URL
 +import java.net.URLEncoder
@@ -458,14 +459,24 @@ index 0000000..6ddb1fd
 +    private const val AGENT =
 +        "firetv-airplay-toolkit (https://github.com/MrkrampfKampf/firetv-airplay-toolkit)"
 +
-+    suspend fun fetch(track: TrackInfo, fallbackDurationMs: Long = 0L): Lyrics =
-+        withContext(Dispatchers.IO) {
++    suspend fun fetch(
++        track: TrackInfo,
++        fallbackDurationMs: Long = 0L,
++        localDir: File? = null,
++    ): Lyrics = withContext(Dispatchers.IO) {
 +        // The sender does not always report a duration, and duration is the single
 +        // strongest signal that two tracks with the same name are the same song.
 +        // Take it from the player when the metadata leaves it out.
 +        val track = if (track.durationMs > 0 || fallbackDurationMs <= 0) track
 +                    else track.copy(durationMs = fallbackDurationMs)
-+        if (track.title.isBlank() || track.artist.isBlank()) return@withContext Lyrics.Missing
++        if (track.title.isBlank()) return@withContext Lyrics.Missing
++
++        // A file you put there yourself always wins. It is the answer for anything
++        // the database does not carry, and an .lrc brings its own timing, so the
++        // highlight still follows the music.
++        local(localDir, track)?.let { return@withContext it }
++
++        if (track.artist.isBlank()) return@withContext Lyrics.Missing
 +        runCatching {
 +            // Most misses are the query, not the database. Senders report titles
 +            // like "Song (feat. X) - Remastered 2011" and artists like "A, B & C",
@@ -529,6 +540,48 @@ index 0000000..6ddb1fd
 +    fun leadArtist(artist: String): String =
 +        ARTIST_SPLIT.split(artist).firstOrNull { it.isNotBlank() }?.trim()
 +            ?: artist.trim()
++
++    /**
++     * Lyrics sitting next to the app on the device.
++     *
++     * Any .lrc or .txt in the folder counts, matched on a folded form of its name,
++     * so several spellings find the same track without anyone having to reproduce
++     * the sender's punctuation exactly. An .lrc carries its own timestamps and is
++     * treated as timed; a .txt is shown without highlighting.
++     */
++    fun local(dir: File?, track: TrackInfo): Lyrics? {
++        val folder = dir ?: return null
++        if (!folder.isDirectory) return null
++        val files = folder.listFiles() ?: return null
++
++        val wantTitle = norm(track.title)
++        if (wantTitle.isEmpty()) return null
++        val wantArtist = norm(track.artist)
++        val wantBoth = norm(track.artist + " " + track.title)
++        val wantAlt = norm(track.title + " " + track.artist)
++
++        val hit = files.firstOrNull { file ->
++            if (!file.isFile) return@firstOrNull false
++            val ext = file.extension.lowercase()
++            if (ext != "lrc" && ext != "txt") return@firstOrNull false
++            val stem = norm(file.nameWithoutExtension)
++            stem == wantTitle || stem == wantBoth || stem == wantAlt ||
++                (stem.contains(wantTitle) && (wantArtist.isEmpty() || stem.contains(wantArtist)))
++        } ?: return null
++
++        val raw = runCatching { hit.readText() }.getOrNull() ?: return null
++        if (raw.isBlank()) return null
++
++        val timed = parseLrc(raw)
++        if (timed.isNotEmpty()) {
++            Log.i(TAG, "using timed lyrics from " + hit.name)
++            return Lyrics.Timed(timed)
++        }
++        val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
++        if (lines.isEmpty()) return null
++        Log.i(TAG, "using plain lyrics from " + hit.name)
++        return Lyrics.Plain(lines)
++    }
 +
 +    /**
 +     * Whether a catalogue title can be the reported one.
@@ -717,7 +770,7 @@ index 0000000..6ddb1fd
 +    }
 +}
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-index 81e662d..14623b1 100644
+index 81e662d..58b8285 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 @@ -75,6 +75,24 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
@@ -1004,7 +1057,7 @@ index 81e662d..14623b1 100644
                      Icon(
                          Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
                          tint = Color.White.copy(alpha = 0.7f)
-@@ -866,128 +887,318 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
+@@ -866,128 +887,323 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
  @AndroidxOptIn(UnstableApi::class)
  private fun NowPlayingContent(viewModel: MainViewModel) {
      val track by viewModel.trackInfo.collectAsState()
@@ -1012,6 +1065,11 @@ index 81e662d..14623b1 100644
  
 -    Column(
 +    // Words come from off the device, so they arrive after the track does.
++    // Lyrics you supply yourself live here and take priority over the database.
++    val appContext = LocalContext.current.applicationContext
++    val lyricsFolder = remember(appContext) {
++        java.io.File(appContext.getExternalFilesDir(null), "lyrics")
++    }
 +    var lyrics by remember { mutableStateOf<Lyrics>(Lyrics.Missing) }
 +    // Duration is what tells two songs of the same name apart, and the sender does
 +    // not always send it. Key on whether the player knows it yet so the lookup runs
@@ -1022,7 +1080,7 @@ index 81e662d..14623b1 100644
 +            lyrics = Lyrics.Missing
 +        } else {
 +            lyrics = Lyrics.Loading
-+            lyrics = LyricsSource.fetch(track, playerDurationMs)
++            lyrics = LyricsSource.fetch(track, playerDurationMs, lyricsFolder)
 +        }
 +    }
 +
@@ -1421,7 +1479,7 @@ index 81e662d..14623b1 100644
  private const val VIDEO_OVERLAY_HIDE_MS = 4000L
  
  @Composable
-@@ -1039,3 +1250,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
+@@ -1039,3 +1255,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
  private fun formatDecode(meanUs: Int, maxUs: Int, held: Int, errors: Int): String =
      (if (meanUs == 0) "held=$held"
      else "%.1f/%.1f ms held=%d".format(meanUs / 1000.0, maxUs / 1000.0, held)) + " errs=$errors"
