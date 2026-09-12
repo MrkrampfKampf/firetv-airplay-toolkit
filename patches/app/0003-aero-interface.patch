@@ -402,10 +402,10 @@ index 2ea7a0d..3c225d3 100644
          }
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt
 new file mode 100644
-index 0000000..9579b9b
+index 0000000..6ddb1fd
 --- /dev/null
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Lyrics.kt
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,310 @@
 +package io.github.jqssun.airplay.ui
 +
 +import android.util.Log
@@ -458,7 +458,13 @@ index 0000000..9579b9b
 +    private const val AGENT =
 +        "firetv-airplay-toolkit (https://github.com/MrkrampfKampf/firetv-airplay-toolkit)"
 +
-+    suspend fun fetch(track: TrackInfo): Lyrics = withContext(Dispatchers.IO) {
++    suspend fun fetch(track: TrackInfo, fallbackDurationMs: Long = 0L): Lyrics =
++        withContext(Dispatchers.IO) {
++        // The sender does not always report a duration, and duration is the single
++        // strongest signal that two tracks with the same name are the same song.
++        // Take it from the player when the metadata leaves it out.
++        val track = if (track.durationMs > 0 || fallbackDurationMs <= 0) track
++                    else track.copy(durationMs = fallbackDurationMs)
 +        if (track.title.isBlank() || track.artist.isBlank()) return@withContext Lyrics.Missing
 +        runCatching {
 +            // Most misses are the query, not the database. Senders report titles
@@ -524,6 +530,48 @@ index 0000000..9579b9b
 +        ARTIST_SPLIT.split(artist).firstOrNull { it.isNotBlank() }?.trim()
 +            ?: artist.trim()
 +
++    /**
++     * Whether a catalogue title can be the reported one.
++     *
++     * A sender may report "Whatever" for a song filed as "Whatever (Call Me
++     * Whenever)", so extra words are allowed only when they are an annotation in
++     * brackets or after a dash. "Whatever I Like" is a different song and must not
++     * pass, which is exactly the case that put one track's words under another.
++     */
++    private fun titleFits(reported: String, candidate: String): Boolean {
++        val r = norm(reported)
++        val c = norm(candidate)
++        if (r.isEmpty() || c.isEmpty()) return false
++        if (r == c) return true
++        if (c.startsWith(r + " ")) {
++            val rest = candidate.trim().drop(reported.trim().length).trimStart()
++            val first = rest.firstOrNull()
++            return first == '(' || first == '[' || first == '-' || first == '–'
++        }
++        if (r.startsWith(c + " ")) return true
++        return false
++    }
++
++    private fun artistFits(reported: String, candidate: String): Boolean {
++        val r = norm(reported)
++        val c = norm(candidate)
++        return r == c || r.startsWith(c) || c.startsWith(r)
++    }
++
++    /** Lowercase, punctuation folded to single spaces. No regex, no surprises. */
++    private fun norm(value: String): String = buildString {
++        var pendingSpace = false
++        for (ch in value.lowercase()) {
++            if (ch.isLetterOrDigit()) {
++                if (pendingSpace && isNotEmpty()) append(' ')
++                append(ch)
++                pendingSpace = false
++            } else {
++                pendingSpace = true
++            }
++        }
++    }
++
 +    /** The precise endpoint: matches on all four fields, so it is right or nothing. */
 +    private fun exact(track: TrackInfo): Lyrics? {
 +        val url = buildString {
@@ -534,7 +582,10 @@ index 0000000..9579b9b
 +            if (track.durationMs > 0) append("&duration=").append(track.durationMs / 1000)
 +        }
 +        val body = get(url) ?: return null
-+        return parse(JSONObject(body))
++        val node = JSONObject(body)
++        // Without a duration the endpoint matches on name alone, so check anyway.
++        if (!titleFits(track.title, node.optString("trackName"))) return null
++        return parse(node)
 +    }
 +
 +    /**
@@ -549,27 +600,40 @@ index 0000000..9579b9b
 +        val results = JSONArray(body)
 +        if (results.length() == 0) return null
 +
++        val wantSeconds = track.durationMs / 1000
 +        var best: JSONObject? = null
 +        var bestGap = Long.MAX_VALUE
-+        val wantSeconds = track.durationMs / 1000
++        var bestSynced = false
++
 +        for (i in 0 until results.length()) {
 +            val candidate = results.optJSONObject(i) ?: continue
-+            val hasWords = candidate.optString("syncedLyrics").isNotBlank() ||
-+                candidate.optString("plainLyrics").isNotBlank()
-+            if (!hasWords) continue
++            val synced = candidate.optString("syncedLyrics").isNotBlank()
++            if (!synced && candidate.optString("plainLyrics").isBlank()) continue
++            if (!titleFits(track.title, candidate.optString("trackName"))) continue
++            if (!artistFits(track.artist, candidate.optString("artistName"))) continue
++
 +            val gap = if (wantSeconds > 0) {
 +                kotlin.math.abs(candidate.optLong("duration") - wantSeconds)
 +            } else {
 +                0L
 +            }
-+            if (gap < bestGap) {
-+                bestGap = gap
++            // Five seconds apart is a different recording, not a near miss.
++            if (wantSeconds > 0 && gap > 5) continue
++
++            val better = when {
++                best == null -> true
++                synced != bestSynced -> synced
++                else -> gap < bestGap
++            }
++            if (better) {
 +                best = candidate
++                bestGap = gap
++                bestSynced = synced
 +            }
 +        }
-+        // A minute out is a different recording, not a near miss.
-+        if (best == null || (wantSeconds > 0 && bestGap > 60)) return null
-+        return parse(best)
++        // Showing nothing is correct here. Showing another song's words is not, and
++        // on screen the two are indistinguishable.
++        return best?.let { parse(it) }
 +    }
 +
 +    private fun parse(node: JSONObject): Lyrics? {
@@ -653,10 +717,10 @@ index 0000000..9579b9b
 +    }
 +}
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-index 81e662d..b59467b 100644
+index 81e662d..14623b1 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-@@ -75,6 +75,22 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
+@@ -75,6 +75,24 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
  import androidx.media3.ui.compose.material3.indicator.ProgressSlider
  import kotlin.math.abs
  import kotlinx.coroutines.delay
@@ -676,10 +740,12 @@ index 81e662d..b59467b 100644
 +import androidx.compose.foundation.lazy.items
 +import androidx.compose.foundation.lazy.rememberLazyListState
 +import android.os.SystemClock
++import androidx.compose.ui.graphics.TransformOrigin
++import androidx.compose.ui.graphics.graphicsLayer
  
  private enum class Tab(val labelRes: Int, val icon: ImageVector) {
      OVERVIEW(R.string.tab_overview, Icons.Default.Cast),
-@@ -510,33 +526,46 @@ fun MainScreen(
+@@ -510,33 +528,46 @@ fun MainScreen(
              onPip = onPip
          )
      } else {
@@ -740,7 +806,7 @@ index 81e662d..b59467b 100644
              }
          }
      }
-@@ -604,22 +633,52 @@ private fun OverviewContent(
+@@ -604,22 +635,52 @@ private fun OverviewContent(
          if (tv) startFocus.requestFocus()
      }
  
@@ -802,7 +868,7 @@ index 81e662d..b59467b 100644
                  if (state == ServerState.RUNNING && (mirroringActive || idlePreview)) {
                      video()
                  }
-@@ -628,8 +687,8 @@ private fun OverviewContent(
+@@ -628,8 +689,8 @@ private fun OverviewContent(
                          Icon(
                              imageVector = if (connections > 0) Icons.Default.CastConnected else Icons.Default.Cast,
                              contentDescription = null,
@@ -813,7 +879,7 @@ index 81e662d..b59467b 100644
                          )
                          Spacer(Modifier.height(12.dp))
                          Text(
-@@ -637,9 +696,11 @@ private fun OverviewContent(
+@@ -637,9 +698,11 @@ private fun OverviewContent(
                                  ServerState.STOPPED -> stringResource(R.string.server_stopped)
                                  ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
                                  ServerState.ERROR -> stringResource(R.string.error_starting_server)
@@ -828,7 +894,7 @@ index 81e662d..b59467b 100644
                          )
                      }
                  } else if (connecting) {
-@@ -651,13 +712,13 @@ private fun OverviewContent(
+@@ -651,13 +714,13 @@ private fun OverviewContent(
                  }
                  if (state == ServerState.RUNNING && mirroringActive) {
                      Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
@@ -844,7 +910,7 @@ index 81e662d..b59467b 100644
                              Icon(
                                  Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
                                  tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-@@ -689,64 +750,22 @@ private fun OverviewContent(
+@@ -689,64 +752,22 @@ private fun OverviewContent(
                      )
                  }
              }
@@ -922,7 +988,7 @@ index 81e662d..b59467b 100644
      }
  }
  
-@@ -782,13 +801,13 @@ private fun FullscreenVideo(
+@@ -782,13 +803,13 @@ private fun FullscreenVideo(
              modifier = Modifier.align(Alignment.TopEnd)
          ) {
              Row(modifier = Modifier.padding(8.dp)) {
@@ -938,7 +1004,7 @@ index 81e662d..b59467b 100644
                      Icon(
                          Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
                          tint = Color.White.copy(alpha = 0.7f)
-@@ -866,128 +885,303 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
+@@ -866,128 +887,318 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
  @AndroidxOptIn(UnstableApi::class)
  private fun NowPlayingContent(viewModel: MainViewModel) {
      val track by viewModel.trackInfo.collectAsState()
@@ -947,12 +1013,16 @@ index 81e662d..b59467b 100644
 -    Column(
 +    // Words come from off the device, so they arrive after the track does.
 +    var lyrics by remember { mutableStateOf<Lyrics>(Lyrics.Missing) }
-+    LaunchedEffect(track.title, track.artist, track.album) {
++    // Duration is what tells two songs of the same name apart, and the sender does
++    // not always send it. Key on whether the player knows it yet so the lookup runs
++    // again once it does.
++    val playerDurationMs = player?.duration?.takeIf { it > 0 } ?: 0L
++    LaunchedEffect(track.title, track.artist, track.album, playerDurationMs > 0) {
 +        if (track.title.isBlank()) {
 +            lyrics = Lyrics.Missing
 +        } else {
 +            lyrics = Lyrics.Loading
-+            lyrics = LyricsSource.fetch(track)
++            lyrics = LyricsSource.fetch(track, playerDurationMs)
 +        }
 +    }
 +
@@ -1163,6 +1233,7 @@ index 81e662d..b59467b 100644
 +                modifier = Modifier
 +                    .weight(0.56f)
 +                    .fillMaxHeight()
++                    .padding(end = 40.dp)
              )
          }
 -        if (track.album.isNotEmpty()) {
@@ -1297,10 +1368,14 @@ index 81e662d..b59467b 100644
 +                            animationSpec = tween(320),
 +                            label = "lyricFade"
 +                        )
-+                        val size by animateFloatAsState(
-+                            targetValue = if (isNow) 30f else 24f,
-+                            animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow),
-+                            label = "lyricSize"
++                        // Scale when drawing rather than changing the type size.
++                        // Animating fontSize changes the measured height of the row
++                        // every frame, so the list reflows underneath its own scroll
++                        // animation and lines briefly draw on top of each other.
++                        val grow by animateFloatAsState(
++                            targetValue = if (isNow) 1.14f else 1f,
++                            animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessLow),
++                            label = "lyricGrow"
 +                        )
 +                        if (line.text.isEmpty()) {
 +                            Spacer(Modifier.height(18.dp))
@@ -1308,10 +1383,16 @@ index 81e662d..b59467b 100644
 +                            Text(
 +                                text = line.text,
 +                                fontFamily = Aero.Display,
-+                                fontSize = size.sp,
-+                                lineHeight = (size * 1.5f).sp,
++                                fontSize = 25.sp,
++                                lineHeight = 38.sp,
 +                                color = if (isNow) Aero.Ink else Aero.Ink.copy(alpha = fade),
-+                                modifier = Modifier.padding(vertical = 6.dp)
++                                modifier = Modifier
++                                    .padding(vertical = 7.dp, horizontal = 0.dp)
++                                    .graphicsLayer {
++                                        scaleX = grow
++                                        scaleY = grow
++                                        transformOrigin = TransformOrigin(0f, 0.5f)
++                                    }
 +                            )
 +                        }
 +                    }
@@ -1340,7 +1421,7 @@ index 81e662d..b59467b 100644
  private const val VIDEO_OVERLAY_HIDE_MS = 4000L
  
  @Composable
-@@ -1039,3 +1233,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
+@@ -1039,3 +1250,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
  private fun formatDecode(meanUs: Int, maxUs: Int, held: Int, errors: Int): String =
      (if (meanUs == 0) "held=$held"
      else "%.1f/%.1f ms held=%d".format(meanUs / 1000.0, maxUs / 1000.0, held)) + " errs=$errors"
