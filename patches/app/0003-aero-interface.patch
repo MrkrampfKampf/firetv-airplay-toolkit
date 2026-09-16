@@ -1,172 +1,320 @@
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt
 new file mode 100644
-index 0000000..0cd5e71
+index 0000000..d6d389d
 --- /dev/null
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/Aero.kt
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,762 @@
 +package io.github.jqssun.airplay.ui
 +
 +import android.graphics.Bitmap
++import androidx.compose.animation.animateColorAsState
 +import androidx.compose.animation.core.Spring
 +import androidx.compose.animation.core.animateFloatAsState
 +import androidx.compose.animation.core.spring
-+import androidx.compose.foundation.Image
-+import androidx.compose.foundation.background
-+import androidx.compose.foundation.border
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.focusable
++import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.interaction.collectIsFocusedAsState
++import androidx.compose.foundation.interaction.collectIsPressedAsState
 +import androidx.compose.foundation.layout.Box
-+import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.size
 +import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.runtime.Composable
 +import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.remember
 +import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
 +import androidx.compose.ui.Modifier
 +import androidx.compose.ui.composed
-+import androidx.compose.ui.focus.onFocusChanged
-+import androidx.compose.ui.draw.clip
 +import androidx.compose.ui.draw.drawBehind
 +import androidx.compose.ui.draw.drawWithCache
-+import androidx.compose.ui.draw.scale
++import androidx.compose.ui.focus.onFocusChanged
++import androidx.compose.ui.geometry.CornerRadius
 +import androidx.compose.ui.geometry.Offset
 +import androidx.compose.ui.geometry.Size
 +import androidx.compose.ui.graphics.Brush
 +import androidx.compose.ui.graphics.Color
-+import androidx.compose.ui.graphics.ImageBitmap
++import androidx.compose.ui.graphics.Path
 +import androidx.compose.ui.graphics.Shape
-+import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.graphics.StrokeCap
++import androidx.compose.ui.graphics.drawscope.DrawScope
 +import androidx.compose.ui.graphics.drawscope.Stroke
-+import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.graphics.drawscope.withTransform
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.graphics.lerp
++import androidx.compose.ui.input.key.Key
++import androidx.compose.ui.input.key.KeyEventType
++import androidx.compose.ui.input.key.key
++import androidx.compose.ui.input.key.onPreviewKeyEvent
++import androidx.compose.ui.input.key.type
++import androidx.compose.ui.input.pointer.pointerInput
 +import androidx.compose.ui.text.font.DeviceFontFamilyName
 +import androidx.compose.ui.text.font.Font
 +import androidx.compose.ui.text.font.FontFamily
++import androidx.compose.ui.text.font.FontWeight
 +import androidx.compose.ui.unit.Dp
 +import androidx.compose.ui.unit.dp
-+import kotlin.math.roundToInt
 +
 +/**
-+ * The material system the interface is built from.
++ * Art direction for the receiver: a piece of late-2000s consumer electronics,
++ * rendered with today's tools.
 + *
-+ * The point of this file is hierarchy through MATERIAL rather than through boxes.
-+ * A panel of acrylic, a moulded plastic key and an illuminated rail are three
-+ * different substances that happen to share a palette, so the eye can tell what
-+ * matters without anything being outlined or boxed. Everything here is gradients,
-+ * strokes and one cached canvas, because Android 9 has no runtime blur, no
-+ * RenderEffect and no runtime shaders, and the stick this runs on has a PowerVR
-+ * GE8300 and a gigabyte of memory.
++ * The earlier pass put everything in the same frosted container, which is what
++ * made it read as a glass dashboard. This one is built the way a product designer
++ * would build hardware: one room, a handful of real objects in it, and a different
++ * material for each kind of thing. The screen is a screen, a key you press is
++ * moulded plastic, a status is a lamp, progress is a light guide. Text mostly sits
++ * straight on the scene with no box at all, and focus means an object is being lit,
++ * never that it grows a border.
 + *
-+ * Softness is therefore bought by scaling a bitmap down and letting the upscale
-+ * blur it, and glow is bought with concentric strokes of falling alpha. Both are
-+ * effectively free, and neither costs anything per frame.
++ * Everything is gradients, paths and cached draws. Android 9 has no runtime blur,
++ * no RenderEffect and no runtime shaders, and the stick this runs on has a PowerVR
++ * GE8300 and a gigabyte of memory, so glow is a radial gradient, reflection is a
++ * flipped image under a fade, and the room is drawn once and replayed.
 + */
 +object Aero {
-+    // A restrained late-2000s consumer-electronics palette: cold ambient light,
-+    // aqua highlights, one warm-free accent so the glass stays believable.
-+    val Void = Color(0xFF03070D)
-+    val Deep = Color(0xFF061320)
-+    val Cyan = Color(0xFF3FDCFF)
-+    val Aqua = Color(0xFF6FF0DC)
-+    val Sky = Color(0xFF8FC7FF)
-+    val Mint = Color(0xFF9CE8C0)
-+    val Violet = Color(0xFFAE93FF)
-+    val Ink = Color(0xFFEAF6FF)
-+    val InkDim = Color(0xFF9DB6C9)
++    // Restrained Frutiger Aero: aqua light, a little mint, clean white type on a
++    // deep blue-black room. No purple, no neon.
++    val Night = Color(0xFF03080C)
++    val Wall = Color(0xFF06131A)
++    val Desk = Color(0xFF071219)
++    val Aqua = Color(0xFF5FE3F2)
++    val Cyan = Color(0xFF37C8F0)
++    val Sky = Color(0xFF9ED8FF)
++    val Mint = Color(0xFF8BE6C2)
++    val Warm = Color(0xFFFFB38A)
++    val Ink = Color(0xFFF2FAFF)
++    val InkDim = Color(0xFF9FB7C4)
++    val InkFaint = Color(0xFF5E7684)
 +
-+    /** Condensed for labels and readouts, light for anything large. */
-+    val Readout = FontFamily(Font(DeviceFontFamilyName("sans-serif-condensed")))
-+    val Display = FontFamily(Font(DeviceFontFamilyName("sans-serif-light")))
++    /**
++     * Where the wall meets the desk, as a fraction of screen height. Layouts that put
++     * objects "on" the desk use the same number, so the scene and the interface agree.
++     */
++    const val HORIZON = 0.655f
++
++    // Explicit weights. A bare "sans-serif-light" alias loses its weight on Android 9
++    // in Compose and quietly renders as Regular, which is what made the previous
++    // "light" type look heavy.
++    private val sans = DeviceFontFamilyName("sans-serif")
++    private val condensed = DeviceFontFamilyName("sans-serif-condensed")
++    val Thin = FontFamily(Font(sans, weight = FontWeight.Thin))
++    val Light = FontFamily(Font(sans, weight = FontWeight.Light))
++    val Regular = FontFamily(Font(sans, weight = FontWeight.Normal))
++    val Label = FontFamily(Font(condensed, weight = FontWeight.Normal))
++
++    // Older names, kept so the settings and logs screens keep compiling.
++    val Display: FontFamily get() = Light
++    val Readout: FontFamily get() = Label
 +}
 +
-+/* ------------------------------------------------------------------ environment */
++private val LightSpring = spring<Float>(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
++private val PressSpring = spring<Float>(dampingRatio = 0.6f, stiffness = Spring.StiffnessHigh)
++
++/* ======================================================================== light */
++
++/** A soft light source: a radial falloff, never a ring. */
++fun DrawScope.glow(center: Offset, radius: Float, color: Color, alpha: Float) {
++    if (alpha <= 0.004f || radius <= 0f) return
++    drawCircle(
++        brush = Brush.radialGradient(
++            0f to color.copy(alpha = alpha),
++            0.45f to color.copy(alpha = alpha * 0.38f),
++            1f to Color.Transparent,
++            center = center,
++            radius = radius,
++        ),
++        radius = radius,
++        center = center,
++    )
++}
++
++/** Light landing on the desk: the same falloff, squashed into perspective. */
++fun DrawScope.deskLight(center: Offset, radius: Float, color: Color, alpha: Float) {
++    if (alpha <= 0.004f || radius <= 0f) return
++    withTransform({ scale(1f, 0.28f, pivot = center) }) {
++        glow(center, radius, color, alpha)
++    }
++}
++
++/* ========================================================================= room */
++
++private data class Bokeh(val x: Float, val y: Float, val r: Float, val a: Float, val mint: Boolean)
++
++// Fixed positions: the room should be the same room every time it is drawn.
++private val BOKEH = listOf(
++    Bokeh(0.06f, 0.18f, 0.034f, 0.060f, false),
++    Bokeh(0.17f, 0.08f, 0.016f, 0.095f, false),
++    Bokeh(0.43f, 0.11f, 0.050f, 0.040f, true),
++    Bokeh(0.57f, 0.05f, 0.020f, 0.075f, false),
++    Bokeh(0.73f, 0.20f, 0.038f, 0.045f, false),
++    Bokeh(0.85f, 0.10f, 0.028f, 0.070f, true),
++    Bokeh(0.96f, 0.33f, 0.058f, 0.030f, false),
++    Bokeh(0.31f, 0.36f, 0.013f, 0.085f, false),
++    Bokeh(0.66f, 0.43f, 0.024f, 0.038f, true),
++)
 +
 +/**
-+ * The room the interface sits in: two pools of ambient light, a horizon with a
-+ * floor under it, a vignette and a fine scan texture. Cached as a single draw, so
-+ * it costs one bitmap and nothing per frame.
++ * Pulls a light colour out of album art: saturated, bright pixels count most, and
++ * the result is drawn halfway back toward the house aqua so every album still
++ * lights the same room instead of repainting it.
 + */
 +@Composable
-+fun AeroEnvironment(modifier: Modifier = Modifier) {
++fun rememberAmbient(cover: Bitmap?): Color = remember(cover) {
++    if (cover == null) return@remember Aero.Aqua
++    runCatching {
++        val small = Bitmap.createScaledBitmap(cover, 12, 12, true)
++        val hsv = FloatArray(3)
++        var r = 0.0
++        var g = 0.0
++        var b = 0.0
++        var weight = 0.0
++        for (x in 0 until 12) {
++            for (y in 0 until 12) {
++                val p = small.getPixel(x, y)
++                android.graphics.Color.colorToHSV(p, hsv)
++                val w = (hsv[1] * hsv[2]).toDouble().let { it * it }
++                r += android.graphics.Color.red(p) * w
++                g += android.graphics.Color.green(p) * w
++                b += android.graphics.Color.blue(p) * w
++                weight += w
++            }
++        }
++        if (weight < 1e-3) return@runCatching Aero.Aqua
++        val found = Color(
++            (r / weight / 255.0).toFloat().coerceIn(0f, 1f),
++            (g / weight / 255.0).toFloat().coerceIn(0f, 1f),
++            (b / weight / 255.0).toFloat().coerceIn(0f, 1f),
++        )
++        lerp(Aero.Aqua, found, 0.45f)
++    }.getOrDefault(Aero.Aqua)
++}
++
++/**
++ * The room the interface lives in.
++ *
++ * A cove light washes down the back wall, two slow ribbons of light cross it, out
++ * of focus lights sit in the distance, and a glossy desk runs across the bottom
++ * third with a lit back edge and the cove reflected in it. Two glass orbs stand on
++ * the desk: real objects with a highlight, a contact shadow and a reflection, which
++ * is what turns a background into a place. The album only tints the light.
++ */
++@Composable
++fun Room(ambient: Color, modifier: Modifier = Modifier) {
++    val light by animateColorAsState(ambient, tween(1200), label = "roomLight")
 +    Box(
 +        modifier.drawWithCache {
 +            val w = size.width
 +            val h = size.height
-+            val horizon = h * 0.63f
++            val horizon = h * Aero.HORIZON
++
++            val ribbonA = Path().apply {
++                moveTo(-0.10f * w, 0.34f * h)
++                cubicTo(0.22f * w, 0.02f * h, 0.52f * w, 0.46f * h, 1.10f * w, 0.10f * h)
++            }
++            val ribbonB = Path().apply {
++                moveTo(-0.10f * w, 0.52f * h)
++                cubicTo(0.30f * w, 0.30f * h, 0.62f * w, 0.62f * h, 1.10f * w, 0.30f * h)
++            }
++            val ribbonBrush = Brush.linearGradient(
++                listOf(Color.Transparent, Aero.Aqua.copy(alpha = 0.9f), Aero.Mint.copy(alpha = 0.7f), Color.Transparent),
++                start = Offset(0f, 0f),
++                end = Offset(w, 0f),
++            )
++
 +            onDrawBehind {
-+                // ground
++                // back wall
 +                drawRect(
 +                    Brush.verticalGradient(
-+                        0f to Aero.Deep,
-+                        0.58f to Color(0xFF04101B),
-+                        1f to Aero.Void,
-+                    )
-+                )
-+                // key light, upper left
-+                drawCircle(
-+                    brush = Brush.radialGradient(
-+                        colors = listOf(Aero.Cyan.copy(alpha = 0.20f), Color.Transparent),
-+                        center = Offset(w * 0.18f, h * 0.10f),
-+                        radius = w * 0.62f,
++                        0f to Color(0xFF071A22),
++                        0.34f to Aero.Wall,
++                        1f to Aero.Night,
++                        endY = horizon,
 +                    ),
-+                    radius = w * 0.62f,
-+                    center = Offset(w * 0.18f, h * 0.10f),
++                    size = Size(w, horizon),
 +                )
-+                // fill light, lower right, cooler and weaker
-+                drawCircle(
-+                    brush = Brush.radialGradient(
-+                        colors = listOf(Aero.Aqua.copy(alpha = 0.13f), Color.Transparent),
-+                        center = Offset(w * 0.86f, h * 0.86f),
-+                        radius = w * 0.50f,
-+                    ),
-+                    radius = w * 0.50f,
-+                    center = Offset(w * 0.86f, h * 0.86f),
-+                )
-+                // a single violet bounce keeps the palette from going monotone
-+                drawCircle(
-+                    brush = Brush.radialGradient(
-+                        colors = listOf(Aero.Violet.copy(alpha = 0.09f), Color.Transparent),
-+                        center = Offset(w * 0.62f, h * 0.05f),
-+                        radius = w * 0.34f,
-+                    ),
-+                    radius = w * 0.34f,
-+                    center = Offset(w * 0.62f, h * 0.05f),
-+                )
-+                // the horizon: a lit edge with the floor falling away below it
++                // cove light washing down from above
 +                drawRect(
-+                    brush = Brush.verticalGradient(
-+                        0f to Color.Transparent,
-+                        1f to Color.White.copy(alpha = 0.055f),
-+                    ),
-+                    topLeft = Offset(0f, horizon - h * 0.16f),
-+                    size = Size(w, h * 0.16f),
-+                )
-+                drawRect(
-+                    color = Color.White.copy(alpha = 0.10f),
-+                    topLeft = Offset(0f, horizon),
-+                    size = Size(w, 1.2f),
-+                )
-+                drawRect(
-+                    brush = Brush.verticalGradient(
-+                        0f to Color.White.copy(alpha = 0.045f),
++                    Brush.verticalGradient(
++                        0f to light.copy(alpha = 0.14f),
++                        0.45f to light.copy(alpha = 0.04f),
 +                        1f to Color.Transparent,
++                        endY = horizon * 0.8f,
++                    ),
++                    size = Size(w, horizon * 0.8f),
++                )
++                // the light pooling on the wall behind the stage, tinted by the album
++                glow(Offset(w * 0.30f, h * 0.44f), w * 0.46f, light, 0.16f)
++                glow(Offset(w * 0.78f, h * 0.30f), w * 0.30f, Aero.Aqua, 0.06f)
++
++                // light ribbons: a wide soft band with a finer bright core
++                drawPath(ribbonA, ribbonBrush, alpha = 0.055f, style = Stroke(width = h * 0.10f, cap = StrokeCap.Round))
++                drawPath(ribbonA, ribbonBrush, alpha = 0.10f, style = Stroke(width = h * 0.006f, cap = StrokeCap.Round))
++                drawPath(ribbonB, ribbonBrush, alpha = 0.035f, style = Stroke(width = h * 0.14f, cap = StrokeCap.Round))
++                drawPath(ribbonB, ribbonBrush, alpha = 0.06f, style = Stroke(width = h * 0.004f, cap = StrokeCap.Round))
++
++                // distant out-of-focus lights
++                for (b in BOKEH) {
++                    val tint = if (b.mint) Aero.Mint else Aero.Sky
++                    val c = Offset(b.x * w, b.y * h)
++                    val radius = b.r * w
++                    glow(c, radius, tint, b.a)
++                    drawCircle(tint.copy(alpha = b.a * 0.55f), radius = radius * 0.62f, center = c, style = Stroke(1f))
++                }
++
++                // desk surface
++                drawRect(
++                    Brush.verticalGradient(
++                        0f to Color(0xFF0D2029),
++                        0.10f to Aero.Desk,
++                        1f to Color(0xFF010305),
++                        startY = horizon,
++                        endY = h,
 +                    ),
 +                    topLeft = Offset(0f, horizon),
-+                    size = Size(w, h * 0.24f),
++                    size = Size(w, h - horizon),
 +                )
-+                // scan texture, barely there, enough to read as a surface not a fill
-+                var y = 0f
-+                while (y < h) {
-+                    drawRect(
-+                        color = Color.White.copy(alpha = 0.012f),
-+                        topLeft = Offset(0f, y),
-+                        size = Size(w, 1f),
-+                    )
-+                    y += 3f
-+                }
-+                // vignette
++                // the lit back edge where the desk meets the wall
++                drawRect(
++                    Brush.horizontalGradient(
++                        listOf(
++                            Color.Transparent,
++                            Color.White.copy(alpha = 0.18f),
++                            light.copy(alpha = 0.40f),
++                            Color.White.copy(alpha = 0.18f),
++                            Color.Transparent,
++                        )
++                    ),
++                    topLeft = Offset(0f, horizon - 1f),
++                    size = Size(w, 1.6f),
++                )
++                // the cove light and the album glow reflected in the gloss
++                drawRect(
++                    Brush.verticalGradient(
++                        0f to Color.Transparent,
++                        0.5f to Color.White.copy(alpha = 0.030f),
++                        1f to Color.Transparent,
++                        startY = horizon + h * 0.05f,
++                        endY = horizon + h * 0.17f,
++                    ),
++                    topLeft = Offset(0f, horizon + h * 0.05f),
++                    size = Size(w, h * 0.12f),
++                )
++                deskLight(Offset(w * 0.30f, horizon + h * 0.05f), w * 0.40f, light, 0.12f)
++
++                // objects standing on the desk
++                orb(Offset(w * 0.915f, horizon - h * 0.036f), h * 0.052f, Aero.Aqua, horizon)
++                orb(Offset(w * 0.862f, horizon - h * 0.014f), h * 0.024f, Aero.Mint, horizon)
++
++                // vignette: the room falls off toward the edges like a real lens
 +                drawRect(
 +                    Brush.radialGradient(
-+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)),
-+                        center = Offset(w * 0.5f, h * 0.48f),
++                        0.55f to Color.Transparent,
++                        1f to Color.Black.copy(alpha = 0.62f),
++                        center = Offset(w * 0.5f, h * 0.46f),
 +                        radius = w * 0.78f,
 +                    )
 +                )
@@ -175,213 +323,448 @@ index 0000000..0cd5e71
 +    )
 +}
 +
-+/* -------------------------------------------------------------------- materials */
-+
 +/**
-+ * Acrylic: a thick translucent slab. Light enters along the top edge, the body
-+ * fades as it goes down, and the lower inner edge is dark, which is what makes it
-+ * read as having thickness rather than being a tinted rectangle.
++ * A glossy glass orb: body lit from above left, light gathering in its base, a
++ * sharp highlight, and a shadow and reflection on the desk it stands on.
 + */
-+fun Modifier.acrylic(
-+    shape: Shape = RoundedCornerShape(22.dp),
-+    tint: Color = Aero.Sky,
-+    strength: Float = 1f,
-+): Modifier = this
-+    .clip(shape)
-+    .background(
-+        Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = 0.155f * strength),
-+            0.30f to Color.White.copy(alpha = 0.052f * strength),
-+            0.74f to Color.White.copy(alpha = 0.030f * strength),
-+            1.00f to Color.White.copy(alpha = 0.070f * strength),
-+        )
-+    )
-+    .background(
-+        Brush.verticalGradient(
-+            0.00f to tint.copy(alpha = 0.09f * strength),
-+            0.60f to Color.Transparent,
-+        )
-+    )
-+    .drawBehind {
-+        // lit top rim and a darker lower rim, drawn rather than bordered so the
-+        // two edges can differ
-+        drawRect(
-+            brush = Brush.verticalGradient(
-+                0f to Color.White.copy(alpha = 0.50f),
++private fun DrawScope.orb(center: Offset, r: Float, tint: Color, horizon: Float) {
++    val base = Offset(center.x, center.y + r)
++    // contact shadow
++    withTransform({ scale(1f, 0.22f, pivot = base) }) {
++        drawCircle(
++            Brush.radialGradient(
++                0f to Color.Black.copy(alpha = 0.6f),
 +                1f to Color.Transparent,
++                center = base,
++                radius = r * 1.3f,
 +            ),
-+            size = Size(size.width, 2f),
-+        )
-+        drawRect(
-+            color = Color.Black.copy(alpha = 0.22f),
-+            topLeft = Offset(0f, size.height - 1.5f),
-+            size = Size(size.width, 1.5f),
++            radius = r * 1.3f,
++            center = base,
 +        )
 +    }
-+
-+/**
-+ * Moulded glossy plastic: a solid body with a hard specular sweep over the upper
-+ * half and a shadowed base. This is the material for things you press.
-+ */
-+fun Modifier.glossKey(
-+    shape: Shape = RoundedCornerShape(50),
-+    body: Color = Color(0xFF123048),
-+    lit: Boolean = false,
-+): Modifier = this
-+    .clip(shape)
-+    .background(
-+        Brush.verticalGradient(
-+            0.00f to body.copy(alpha = 0.92f),
-+            0.52f to body.copy(alpha = 0.72f),
-+            1.00f to Color.Black.copy(alpha = 0.36f),
-+        )
-+    )
-+    .background(
-+        // the gloss: bright, short, and cut off hard at the midline
-+        Brush.verticalGradient(
-+            0.00f to Color.White.copy(alpha = if (lit) 0.46f else 0.30f),
-+            0.44f to Color.White.copy(alpha = if (lit) 0.10f else 0.055f),
-+            0.46f to Color.Transparent,
-+        )
-+    )
-+
-+/**
-+ * Illumination: concentric strokes of falling alpha. A cheap stand-in for a bloom
-+ * on a platform with no blur, and it happens to look like the light guide around a
-+ * physical control.
-+ */
-+fun Modifier.illuminate(
-+    shape: Shape = RoundedCornerShape(50),
-+    color: Color = Aero.Cyan,
-+    intensity: Float = 1f,
-+    spread: Dp = 14.dp,
-+): Modifier = this.drawBehind {
-+    if (intensity <= 0.01f) return@drawBehind
-+    val radius = shape.let { 999f }
-+    val steps = 7
-+    val max = spread.toPx()
-+    for (i in steps downTo 1) {
-+        val t = i / steps.toFloat()
-+        drawRoundRect(
-+            color = color.copy(alpha = 0.16f * intensity * (1f - t) * (1f - t)),
-+            topLeft = Offset(-max * t, -max * t),
-+            size = Size(size.width + 2 * max * t, size.height + 2 * max * t),
-+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius),
-+            style = Stroke(width = max * 0.42f),
-+        )
++    // reflection in the desk
++    val mirror = Offset(center.x, base.y + r * 0.95f)
++    withTransform({ scale(1f, 0.55f, pivot = base) }) {
++        glow(mirror, r * 1.1f, tint, 0.16f)
 +    }
-+}
-+
-+/**
-+ * How focus feels, and the only focus treatment in the app.
-+ *
-+ * This replaces a two-pixel accent border. The element rises slightly toward the
-+ * viewer, a light guide comes on around it and its edge picks up the ambient
-+ * colour. Spring rather than tween, so it settles with a little weight instead of
-+ * snapping, which is the difference between a remote driving hardware and a remote
-+ * driving a web page.
-+ */
-+fun Modifier.aeroFocus(
-+    shape: Shape = RoundedCornerShape(14.dp),
-+    glow: Color = Aero.Cyan,
-+): Modifier = composed {
-+    var focused by remember { mutableStateOf(false) }
-+    val lift by animateFloatAsState(
-+        targetValue = if (focused) 1f else 0f,
-+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-+        label = "aeroFocus",
-+    )
-+    onFocusChanged { focused = it.isFocused }
-+        .scale(1f + 0.05f * lift)
-+        .illuminate(shape = shape, color = glow, intensity = lift, spread = 16.dp)
-+        .border(
-+            width = 1.5.dp,
-+            brush = Brush.verticalGradient(
-+                listOf(glow.copy(alpha = 0.85f * lift), glow.copy(alpha = 0.22f * lift))
-+            ),
-+            shape = shape,
-+        )
-+}
-+
-+/**
-+ * Holds the sharp cover: a lit rim and a faint bloom so the artwork reads as a
-+ * physical panel standing in the room rather than a pasted-in square.
-+ */
-+fun Modifier.coverTile(shape: Shape = RoundedCornerShape(20.dp)): Modifier = this
-+    .illuminate(shape = shape, color = Aero.Sky, intensity = 0.42f, spread = 22.dp)
-+    .clip(shape)
-+    .background(Color.White.copy(alpha = 0.05f))
-+    .border(
-+        width = 1.5.dp,
-+        brush = Brush.verticalGradient(
-+            listOf(Color.White.copy(alpha = 0.48f), Aero.Sky.copy(alpha = 0.12f))
++    // body
++    drawCircle(
++        Brush.radialGradient(
++            0f to lerp(tint, Color.White, 0.55f).copy(alpha = 0.85f),
++            0.45f to tint.copy(alpha = 0.55f),
++            1f to Color(0xFF052430).copy(alpha = 0.95f),
++            center = Offset(center.x - r * 0.35f, center.y - r * 0.42f),
++            radius = r * 1.65f,
 +        ),
-+        shape = shape,
++        radius = r,
++        center = center,
 +    )
-+
-+/* ------------------------------------------------------------------ cover ground */
-+
-+/**
-+ * Softening without a blur API.
-+ *
-+ * Shrinking to a few dozen pixels and letting the display scale it back up looks
-+ * like a blur only at modest ratios. Blown up forty times to fill a 1080p screen
-+ * it turns into visible blocks, because one bilinear step cannot invent the
-+ * gradient between two distant samples. Scaling back up in repeated filtered
-+ * doublings does: each pass averages its neighbours, and three or four passes
-+ * approximate a Gaussian closely enough that nothing reads as a square. The
-+ * intermediate bitmaps are tiny, so the whole chain costs well under a
-+ * millisecond and happens once per track.
-+ */
-+@Composable
-+private fun rememberSoftened(source: Bitmap?): ImageBitmap? = remember(source) {
-+    val src = source ?: return@remember null
-+    runCatching {
-+        val ratio = src.height.toFloat() / src.width.toFloat()
-+        fun scaled(width: Int, from: Bitmap): Bitmap {
-+            val height = (ratio * width).roundToInt().coerceAtLeast(1)
-+            return Bitmap.createScaledBitmap(from, width, height, true)
-+        }
-+        // down to almost nothing, then back up in filtered steps
-+        var bmp = scaled(26, src)
-+        for (width in intArrayOf(52, 104, 208, 416)) {
-+            bmp = scaled(width, bmp)
-+        }
-+        bmp.asImageBitmap()
-+    }.getOrNull()
++    // light collecting in the base, the signature of a glass sphere
++    drawCircle(
++        Brush.radialGradient(
++            0f to Color.White.copy(alpha = 0.40f),
++            1f to Color.Transparent,
++            center = Offset(center.x, center.y + r * 0.66f),
++            radius = r * 0.62f,
++        ),
++        radius = r,
++        center = center,
++    )
++    // specular highlight
++    drawOval(
++        Brush.verticalGradient(
++            0f to Color.White.copy(alpha = 0.90f),
++            1f to Color.White.copy(alpha = 0f),
++            startY = center.y - r * 0.88f,
++            endY = center.y - r * 0.18f,
++        ),
++        topLeft = Offset(center.x - r * 0.55f, center.y - r * 0.88f),
++        size = Size(r * 1.1f, r * 0.64f),
++    )
++    drawCircle(Color.White.copy(alpha = 0.20f), radius = r - 0.5f, center = center, style = Stroke(1f))
 +}
 +
-+/**
-+ * With a cover playing, the art becomes the room's light source: it sits behind
-+ * the environment at low opacity so the ambient pools tint toward the album rather
-+ * than being replaced by it. Without one, the room is just the room.
-+ */
++/** Background for the whole app: the room, lit by whatever is playing. */
 +@Composable
 +fun CoverBackdrop(cover: Bitmap?, modifier: Modifier = Modifier) {
-+    val softened = rememberSoftened(cover)
-+    Box(modifier) {
-+        AeroEnvironment(Modifier.fillMaxSize())
-+        if (softened != null) {
-+            Image(
-+                bitmap = softened,
-+                contentDescription = null,
-+                modifier = Modifier.fillMaxSize(),
-+                contentScale = ContentScale.Crop,
-+                alpha = 0.42f,
-+            )
-+            Box(
-+                Modifier
-+                    .fillMaxSize()
-+                    .background(
-+                        Brush.verticalGradient(
-+                            0.00f to Aero.Void.copy(alpha = 0.62f),
-+                            0.42f to Aero.Void.copy(alpha = 0.30f),
-+                            1.00f to Aero.Void.copy(alpha = 0.80f),
-+                        )
-+                    )
-+            )
-+        }
++    Room(ambient = rememberAmbient(cover), modifier = modifier)
++}
++
++/* ==================================================================== materials */
++
++/**
++ * A display standing on the desk: near-black glass inside a thin dark metal bezel,
++ * a lit chamfer along the top, a faint diagonal reflection across the face, and the
++ * light it throws onto the wall behind it and the desk below it.
++ */
++fun Modifier.standingScreen(onDesk: Boolean = true): Modifier = this
++    .drawBehind {
++        val w = size.width
++        val h = size.height
++        glow(Offset(w / 2f, h * 0.45f), w * 0.72f, Aero.Cyan, 0.10f)
++        if (onDesk) deskLight(Offset(w / 2f, h + h * 0.06f), w * 0.62f, Aero.Cyan, 0.16f)
++
++        val bezel = 6.dp.toPx()
++        val outer = CornerRadius(10.dp.toPx())
++        // metal frame
++        drawRoundRect(
++            Brush.verticalGradient(
++                0f to Color(0xFF3B4C57),
++                0.08f to Color(0xFF141E24),
++                0.92f to Color(0xFF0A1015),
++                1f to Color(0xFF26343C),
++                startY = -bezel,
++                endY = h + bezel,
++            ),
++            topLeft = Offset(-bezel, -bezel),
++            size = Size(w + bezel * 2, h + bezel * 2),
++            cornerRadius = outer,
++        )
++        // top chamfer catching the cove light
++        drawRect(
++            Brush.horizontalGradient(
++                listOf(Color.Transparent, Color.White.copy(alpha = 0.42f), Color.Transparent),
++                startX = 0f,
++                endX = w,
++            ),
++            topLeft = Offset(outer.x, -bezel),
++            size = Size(w - outer.x * 2, 1.2f),
++        )
++        // the panel itself
++        drawRoundRect(Color(0xFF010304), cornerRadius = CornerRadius(4.dp.toPx()))
 +    }
++
++/** The reflection streak across a screen's glass, drawn over its content. */
++fun DrawScope.screenGlare() {
++    val w = size.width
++    val h = size.height
++    drawRect(
++        Brush.linearGradient(
++            0f to Color.Transparent,
++            0.42f to Color.Transparent,
++            0.52f to Color.White.copy(alpha = 0.032f),
++            0.62f to Color.Transparent,
++            1f to Color.Transparent,
++            start = Offset(0f, 0f),
++            end = Offset(w, h),
++        )
++    )
++}
++
++/* ========================================================================= keys */
++
++private fun DrawScope.keyGlow(lit: Float, onDesk: Boolean, tint: Color) {
++    val r = size.minDimension / 2f
++    glow(center, r * 1.4f, tint, 0.24f * lit)
++    if (onDesk) deskLight(Offset(center.x, center.y + r * 1.2f), r * 1.7f, tint, 0.30f * lit)
++}
++
++private fun keyInk(lit: Float, rest: Float = 0.58f): Color =
++    lerp(Aero.Ink.copy(alpha = rest), Aero.Ink, lit)
++
++/**
++ * The hero control: a dome of translucent aqua plastic. Lit from inside when
++ * focused, it lifts slightly and throws light onto the desk; pressed, it sinks and
++ * its highlight dulls, the way a real key does.
++ */
++@Composable
++fun GlossDome(
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    diameter: Dp = 58.dp,
++    enabled: Boolean = true,
++    tint: Color = Aero.Aqua,
++    content: @Composable () -> Unit,
++) {
++    val source = remember { MutableInteractionSource() }
++    val focused by source.collectIsFocusedAsState()
++    val pressed by source.collectIsPressedAsState()
++    val lit by animateFloatAsState(if (focused) 1f else 0f, LightSpring, label = "domeLit")
++    val down by animateFloatAsState(if (pressed) 1f else 0f, PressSpring, label = "domeDown")
++
++    Box(
++        modifier = modifier
++            .size(diameter)
++            .graphicsLayer {
++                translationY = (-2.5f * lit + 1.5f * down) * density
++                val s = 1f - 0.05f * down
++                scaleX = s
++                scaleY = s
++            }
++            .drawBehind {
++                val r = size.minDimension / 2f
++                val c = center
++                deskLight(Offset(c.x, c.y + r * 1.15f), r * 2.3f, tint, 0.36f * lit)
++                withTransform({ scale(1f, 0.22f, pivot = Offset(c.x, c.y + r)) }) {
++                    drawCircle(
++                        Brush.radialGradient(
++                            0f to Color.Black.copy(alpha = 0.55f),
++                            1f to Color.Transparent,
++                            center = Offset(c.x, c.y + r),
++                            radius = r * 1.3f,
++                        ),
++                        radius = r * 1.3f,
++                        center = Offset(c.x, c.y + r),
++                    )
++                }
++                glow(c, r * 1.95f, tint, 0.28f * lit)
++                // body
++                drawCircle(
++                    Brush.radialGradient(
++                        0f to lerp(tint, Color.White, 0.45f).copy(alpha = 0.55f + 0.20f * lit),
++                        0.55f to tint.copy(alpha = 0.24f + 0.16f * lit),
++                        1f to Color(0xFF03171E).copy(alpha = 0.94f),
++                        center = Offset(c.x - r * 0.22f, c.y - r * 0.36f),
++                        radius = r * 1.5f,
++                    ),
++                    radius = r,
++                    center = c,
++                )
++                // light gathered in the base
++                drawCircle(
++                    Brush.radialGradient(
++                        0f to Color.White.copy(alpha = 0.20f + 0.26f * lit),
++                        1f to Color.Transparent,
++                        center = Offset(c.x, c.y + r * 0.72f),
++                        radius = r * 0.78f,
++                    ),
++                    radius = r,
++                    center = c,
++                )
++                // specular crescent
++                drawOval(
++                    Brush.verticalGradient(
++                        0f to Color.White.copy(alpha = 0.80f - 0.30f * down),
++                        1f to Color.White.copy(alpha = 0f),
++                        startY = c.y - r * 0.93f,
++                        endY = c.y - r * 0.12f,
++                    ),
++                    topLeft = Offset(c.x - r * 0.62f, c.y - r * 0.93f),
++                    size = Size(r * 1.24f, r * 0.80f),
++                )
++                drawCircle(Color.White.copy(alpha = 0.22f), radius = r - 0.6f, center = c, style = Stroke(1.2f))
++                drawCircle(tint.copy(alpha = 0.70f * lit), radius = r + 1.5f, center = c, style = Stroke(1.8f))
++            }
++            .clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick),
++        contentAlignment = Alignment.Center,
++    ) {
++        content()
++    }
++}
++
++/**
++ * A symbol printed on a surface and lit from behind, like the capacitive keys on a
++ * device bezel. No body at all: at rest it is a dim glyph, focused it glows and
++ * bleeds light around itself.
++ */
++@Composable
++fun BacklitKey(
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    size: Dp = 46.dp,
++    enabled: Boolean = true,
++    onDesk: Boolean = false,
++    tint: Color = Aero.Aqua,
++    content: @Composable (ink: Color) -> Unit,
++) {
++    val source = remember { MutableInteractionSource() }
++    val focused by source.collectIsFocusedAsState()
++    val pressed by source.collectIsPressedAsState()
++    val lit by animateFloatAsState(if (focused) 1f else 0f, LightSpring, label = "keyLit")
++    val down by animateFloatAsState(if (pressed) 1f else 0f, PressSpring, label = "keyDown")
++
++    Box(
++        modifier = modifier
++            .size(size)
++            .graphicsLayer {
++                val s = 1f - 0.08f * down
++                scaleX = s
++                scaleY = s
++            }
++            .drawBehind { keyGlow(lit, onDesk, tint) }
++            .clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick),
++        contentAlignment = Alignment.Center,
++    ) {
++        content(if (enabled) keyInk(lit) else Aero.InkFaint.copy(alpha = 0.5f))
++    }
++}
++
++/**
++ * Press and hold, from the remote or a touch screen: begins on key down, ends on
++ * key up, and also ends if focus leaves mid-hold so a scan can never get stuck on.
++ */
++@Composable
++fun HoldKey(
++    onBegin: () -> Unit,
++    onEnd: () -> Unit,
++    modifier: Modifier = Modifier,
++    size: Dp = 38.dp,
++    onDesk: Boolean = false,
++    content: @Composable (ink: Color) -> Unit,
++) {
++    val source = remember { MutableInteractionSource() }
++    val focused by source.collectIsFocusedAsState()
++    var held by remember { mutableStateOf(false) }
++    val lit by animateFloatAsState(if (focused || held) 1f else 0f, LightSpring, label = "holdLit")
++
++    Box(
++        modifier = modifier
++            .size(size)
++            .onFocusChanged {
++                if (!it.isFocused && held) {
++                    held = false
++                    onEnd()
++                }
++            }
++            .onPreviewKeyEvent { e ->
++                val select = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
++                if (!select) return@onPreviewKeyEvent false
++                when (e.type) {
++                    KeyEventType.KeyDown -> if (!held) {
++                        held = true
++                        onBegin()
++                    }
++                    KeyEventType.KeyUp -> if (held) {
++                        held = false
++                        onEnd()
++                    }
++                }
++                true
++            }
++            .pointerInput(Unit) {
++                detectTapGestures(onPress = {
++                    held = true
++                    onBegin()
++                    try {
++                        awaitRelease()
++                    } finally {
++                        held = false
++                        onEnd()
++                    }
++                })
++            }
++            .focusable(interactionSource = source)
++            .graphicsLayer {
++                val s = if (held) 0.92f else 1f
++                scaleX = s
++                scaleY = s
++            }
++            .drawBehind { keyGlow(lit, onDesk, Aero.Aqua) },
++        contentAlignment = Alignment.Center,
++    ) {
++        content(keyInk(lit, rest = 0.42f))
++    }
++}
++
++/**
++ * The receiver's power key: dark moulded plastic with a light guide ring. The ring
++ * shows state at rest, aqua while running and dark while stopped, and warms when
++ * focused on a running receiver, because pressing it is going to shut it down.
++ */
++@Composable
++fun PowerKey(
++    on: Boolean,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    diameter: Dp = 38.dp,
++    content: @Composable (ink: Color) -> Unit,
++) {
++    val source = remember { MutableInteractionSource() }
++    val focused by source.collectIsFocusedAsState()
++    val pressed by source.collectIsPressedAsState()
++    val lit by animateFloatAsState(if (focused) 1f else 0f, LightSpring, label = "powerLit")
++    val down by animateFloatAsState(if (pressed) 1f else 0f, PressSpring, label = "powerDown")
++    val ring = when {
++        focused && on -> Aero.Warm
++        on -> Aero.Aqua
++        focused -> Aero.Aqua
++        else -> Aero.InkFaint
++    }
++
++    Box(
++        modifier = modifier
++            .size(diameter)
++            .graphicsLayer {
++                val s = 1f - 0.06f * down
++                scaleX = s
++                scaleY = s
++            }
++            .drawBehind {
++                val r = size.minDimension / 2f
++                val c = center
++                glow(c, r * 2.1f, ring, 0.30f * lit + if (on) 0.06f else 0f)
++                drawCircle(
++                    Brush.verticalGradient(
++                        0f to Color(0xFF22323B),
++                        1f to Color(0xFF060C10),
++                        startY = c.y - r,
++                        endY = c.y + r,
++                    ),
++                    radius = r,
++                    center = c,
++                )
++                drawOval(
++                    Brush.verticalGradient(
++                        0f to Color.White.copy(alpha = 0.30f - 0.15f * down),
++                        1f to Color.Transparent,
++                        startY = c.y - r * 0.9f,
++                        endY = c.y - r * 0.2f,
++                    ),
++                    topLeft = Offset(c.x - r * 0.55f, c.y - r * 0.9f),
++                    size = Size(r * 1.1f, r * 0.7f),
++                )
++                drawCircle(
++                    ring.copy(alpha = (if (on) 0.45f else 0.22f) + 0.50f * lit),
++                    radius = r - 2.2f,
++                    center = c,
++                    style = Stroke(2f),
++                )
++            }
++            .clickable(interactionSource = source, indication = null, onClick = onClick),
++        contentAlignment = Alignment.Center,
++    ) {
++        content(if (on || focused) lerp(ring.copy(alpha = 0.85f), Aero.Ink, lit) else Aero.InkFaint)
++    }
++}
++
++/* ======================================================================== focus */
++
++/**
++ * Focus for everything that is not one of the keys above: list rows, text buttons,
++ * small icon buttons. The element is lit from within, with a light guide along its
++ * leading edge; round things get a soft halo instead. No border, no fill colour.
++ * The shape parameter is accepted for compatibility and not drawn.
++ */
++fun Modifier.aeroFocus(
++    @Suppress("UNUSED_PARAMETER") shape: Shape = RoundedCornerShape(10.dp),
++    glow: Color = Aero.Aqua,
++): Modifier = composed {
++    var focused by remember { mutableStateOf(false) }
++    val lit by animateFloatAsState(if (focused) 1f else 0f, LightSpring, label = "aeroFocus")
++    this
++        .onFocusChanged { focused = it.isFocused }
++        .drawBehind {
++            if (lit < 0.01f) return@drawBehind
++            val roundish = size.width < size.height * 1.7f
++            if (roundish) {
++                glow(center, size.maxDimension * 0.85f, glow, 0.26f * lit)
++            } else {
++                drawRoundRect(
++                    Brush.horizontalGradient(
++                        listOf(glow.copy(alpha = 0.14f * lit), glow.copy(alpha = 0.04f * lit), Color.Transparent)
++                    ),
++                    cornerRadius = CornerRadius(8.dp.toPx()),
++                )
++                val bar = 3.dp.toPx()
++                drawRoundRect(
++                    glow.copy(alpha = 0.95f * lit),
++                    topLeft = Offset(0f, size.height * 0.24f),
++                    size = Size(bar, size.height * 0.52f),
++                    cornerRadius = CornerRadius(bar / 2f),
++                )
++                glow(Offset(bar, size.height / 2f), size.height * 0.7f, glow, 0.22f * lit)
++            }
++        }
 +}
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/LogsScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/LogsScreen.kt
 index 2ea7a0d..3c225d3 100644
@@ -770,10 +1153,10 @@ index 0000000..734c7e2
 +    }
 +}
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-index 81e662d..58b8285 100644
+index 81e662d..5ac861a 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/MainScreen.kt
-@@ -75,6 +75,24 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
+@@ -75,6 +75,47 @@ import androidx.media3.ui.compose.material3.indicator.PositionText
  import androidx.media3.ui.compose.material3.indicator.ProgressSlider
  import kotlin.math.abs
  import kotlinx.coroutines.delay
@@ -795,39 +1178,46 @@ index 81e662d..58b8285 100644
 +import android.os.SystemClock
 +import androidx.compose.ui.graphics.TransformOrigin
 +import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.interaction.collectIsFocusedAsState
++import androidx.compose.ui.draw.drawBehind
++import androidx.compose.ui.draw.drawWithContent
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.Shadow
++import androidx.compose.ui.graphics.lerp
++import androidx.compose.ui.input.key.Key
++import androidx.compose.ui.input.key.KeyEventType
++import androidx.compose.ui.input.key.key
++import androidx.compose.ui.input.key.type
++import androidx.compose.ui.text.TextStyle
++import androidx.compose.ui.unit.Dp
++import androidx.media3.ui.compose.state.rememberNextButtonState
++import androidx.media3.ui.compose.state.rememberPlayPauseButtonState
++import androidx.media3.ui.compose.state.rememberPreviousButtonState
++import androidx.compose.ui.draw.drawWithCache
++import androidx.compose.ui.graphics.BlendMode
++import androidx.compose.ui.graphics.CompositingStrategy
++import androidx.compose.ui.graphics.drawscope.withTransform
++import androidx.compose.ui.unit.IntOffset
++import androidx.compose.ui.unit.IntSize
  
  private enum class Tab(val labelRes: Int, val icon: ImageVector) {
      OVERVIEW(R.string.tab_overview, Icons.Default.Cast),
-@@ -510,33 +528,46 @@ fun MainScreen(
+@@ -510,32 +551,35 @@ fun MainScreen(
              onPip = onPip
          )
      } else {
-+        val backdropTrack by viewModel.trackInfo.collectAsState()
-         Scaffold(
-+            containerColor = Color.Transparent,
-             bottomBar = {
+-        Scaffold(
+-            bottomBar = {
 -                Column {
-+                // A control strip that floats clear of the edge, not a bar welded to
-+                // the bottom of the screen.
-+                Column(
-+                    modifier = Modifier.fillMaxWidth(),
-+                    horizontalAlignment = Alignment.CenterHorizontally
-+                ) {
-                     AudioMiniController(
-                         viewModel,
-                         visible = audioOnly && connections > 0 && tab != Tab.OVERVIEW,
-                         onClick = { tab = Tab.OVERVIEW }
-                     )
+-                    AudioMiniController(
+-                        viewModel,
+-                        visible = audioOnly && connections > 0 && tab != Tab.OVERVIEW,
+-                        onClick = { tab = Tab.OVERVIEW }
+-                    )
 -                    NavigationBar {
-+                    Row(
-+                        modifier = Modifier
-+                            .padding(bottom = 26.dp)
-+                            .acrylic(RoundedCornerShape(50), Aero.Sky)
-+                            .padding(horizontal = 10.dp, vertical = 8.dp),
-+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-+                        verticalAlignment = Alignment.CenterVertically
-+                    ) {
-                         Tab.entries.forEach { t ->
+-                        Tab.entries.forEach { t ->
 -                            NavigationBarItem(
 -                                selected = tab == t,
 -                                onClick = { tab = t },
@@ -835,142 +1225,241 @@ index 81e662d..58b8285 100644
 -                                label = { Text(stringResource(t.labelRes)) },
 -                                modifier = Modifier.dpadFocus()
 -                            )
-+                            NavKey(selected = tab == t, tab = t, onClick = { tab = t })
-                         }
-                     }
-                 }
-             }
-         ) { padding ->
+-                        }
+-                    }
+-                }
+-            }
+-        ) { padding ->
 -            Box(modifier = Modifier.padding(padding)) {
 -                TabContent(
 -                    tab, viewModel, video,
 -                    onFullscreen = { fullscreen = true }, onPip = onPip, showAudioMode = audioOnly
--                )
-+            Box(modifier = Modifier.fillMaxSize()) {
-+                // The cover is the ground for the whole screen; every panel above it
-+                // is glass, so the art stays visible through the interface.
-+                CoverBackdrop(cover = backdropTrack.coverArt, modifier = Modifier.fillMaxSize())
-+                Box(modifier = Modifier.padding(padding)) {
-+                    TabContent(
-+                        tab, viewModel, video,
-+                        onFullscreen = { fullscreen = true }, onPip = onPip, showAudioMode = audioOnly
-+                    )
-+                }
++        val backdropTrack by viewModel.trackInfo.collectAsState()
++        // No bars. The room fills the screen, the function keys sit in its top right
++        // corner like the backlit keys on a device bezel, and each tab lays itself out
++        // underneath them.
++        Box(modifier = Modifier.fillMaxSize()) {
++            CoverBackdrop(cover = backdropTrack.coverArt, modifier = Modifier.fillMaxSize())
++
++            val miniPlayerShown = audioOnly && connections > 0 && tab != Tab.OVERVIEW
++            TabContent(
++                tab, viewModel, video,
++                onFullscreen = { fullscreen = true }, onPip = onPip, showAudioMode = audioOnly,
++                bottomInset = if (miniPlayerShown) 84.dp else 12.dp
++            )
++
++            FunctionKeys(
++                selected = tab,
++                onSelect = { tab = it },
++                modifier = Modifier
++                    .align(Alignment.TopEnd)
++                    .padding(top = 20.dp, end = 40.dp)
++            )
++
++            if (miniPlayerShown) {
++                MiniPlayer(
++                    viewModel = viewModel,
++                    onOpen = { tab = Tab.OVERVIEW },
++                    modifier = Modifier
++                        .align(Alignment.BottomStart)
++                        .padding(start = 44.dp, bottom = 22.dp)
+                 )
              }
          }
+@@ -569,15 +613,26 @@ private fun TabContent(
+     video: @Composable () -> Unit,
+     onFullscreen: () -> Unit,
+     onPip: () -> Unit,
+-    showAudioMode: Boolean
++    showAudioMode: Boolean,
++    bottomInset: Dp = 12.dp
+ ) {
+     when (tab) {
+         Tab.OVERVIEW -> OverviewContent(
+             viewModel, video,
+             onFullscreen = onFullscreen, onPip = onPip, showAudioMode = showAudioMode
+         )
+-        Tab.LOGS -> LogsScreen(viewModel)
+-        Tab.SETTINGS -> SettingsScreen(viewModel)
++        // The list tabs keep clear of the function keys above and the mini player
++        // below; the room stays visible around them.
++        Tab.LOGS -> Box(
++            Modifier
++                .fillMaxSize()
++                .padding(start = 36.dp, end = 36.dp, top = 76.dp, bottom = bottomInset)
++        ) { LogsScreen(viewModel) }
++        Tab.SETTINGS -> Box(
++            Modifier
++                .fillMaxSize()
++                .padding(start = 36.dp, end = 36.dp, top = 76.dp, bottom = bottomInset)
++        ) { SettingsScreen(viewModel) }
      }
-@@ -604,22 +635,52 @@ private fun OverviewContent(
-         if (tv) startFocus.requestFocus()
+ }
+ 
+@@ -599,154 +654,162 @@ private fun OverviewContent(
+     val debugEnabled by viewModel.debugEnabled.collectAsState()
+     val debugInfo by viewModel.debugInfo.collectAsState()
+     val tv = isTv()
+-    val startFocus = remember { FocusRequester() }
+-    LaunchedEffect(Unit) {
+-        if (tv) startFocus.requestFocus()
++    val powerFocus = remember { FocusRequester() }
++    val audioScreen = showAudioMode && state == ServerState.RUNNING && connections > 0
++
++    // Initial focus goes to the power key only while nothing is playing. With music
++    // on, the stage takes it on play/pause instead, so a stray OK press pauses a song
++    // rather than shutting the receiver down.
++    LaunchedEffect(audioScreen) {
++        if (tv && !audioScreen) powerFocus.requestFocusUntilLanded()
      }
  
 -    Column(modifier = Modifier.fillMaxSize()) {
 -        // content area
-+    // One room, one screen standing in it, one piece of hardware docked beside it.
-+    // Deliberately not three stacked cards: the display carries the hierarchy, the
-+    // module is a small object next to it, and the strip floats clear of both.
-+    Column(
-+        modifier = Modifier
-+            .fillMaxSize()
-+            .padding(start = 60.dp, end = 60.dp, top = 36.dp, bottom = 10.dp)
-+    ) {
-         Box(
-             modifier = Modifier
-                 .fillMaxWidth()
+-        Box(
+-            modifier = Modifier
+-                .fillMaxWidth()
 -                .weight(1f)
 -                .padding(16.dp)
 -                .clip(RoundedCornerShape(16.dp))
 -                .background(MaterialTheme.colorScheme.surfaceVariant),
-+                .weight(1f),
-             contentAlignment = Alignment.Center
-         ) {
+-            contentAlignment = Alignment.Center
+-        ) {
 -            val connecting = state == ServerState.RUNNING && connections > 0 &&
 -                !mirroringActive && !videoPlaybackActive
 -            if (showAudioMode && state == ServerState.RUNNING && connections > 0) {
-+            val audioScreen = showAudioMode && state == ServerState.RUNNING && connections > 0
-+            if (audioScreen) {
-+                // Music gets the whole room. Boxed into the 16:9 panel meant for
-+                // mirrored video, the lyrics came out three words wide.
-                 NowPlayingContent(viewModel)
+-                NowPlayingContent(viewModel)
++    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
++        val horizon = maxHeight * Aero.HORIZON
++
++        if (audioScreen) {
++            PlayerStage(viewModel = viewModel, horizon = horizon)
++        } else {
++            // A screen standing in the room. Idle it is modest and sits on the desk;
++            // mirroring, it grows to carry the picture and stands in front of it.
++            val showingPicture = state == ServerState.RUNNING && (mirroringActive || videoPlaybackActive)
++            val screenHeight = if (showingPicture) {
++                (maxHeight - 132.dp).coerceAtLeast(160.dp)
              } else {
++                (horizon - 112.dp).coerceAtLeast(120.dp)
++            }
++            val screenBottom = if (showingPicture) maxHeight - 34.dp else horizon
 +            Box(
 +                modifier = Modifier
-+                    // height first: the panel has to fit the room, not the other way
-+                    // round, or it runs off the top of the screen
-+                    .fillMaxHeight()
++                    .align(Alignment.TopCenter)
++                    .padding(top = screenBottom - screenHeight)
++                    .height(screenHeight)
 +                    .aspectRatio(16f / 9f)
-+                    // light spilling off the panel onto the room behind it
-+                    .illuminate(RoundedCornerShape(20.dp), Aero.Cyan, 0.55f, 34.dp)
-+                    .clip(RoundedCornerShape(20.dp))
-+                    .background(Color.Black.copy(alpha = 0.62f))
-+                    .border(
-+                        width = 1.5.dp,
-+                        brush = Brush.verticalGradient(
-+                            listOf(
-+                                Color.White.copy(alpha = 0.55f),
-+                                Aero.Cyan.copy(alpha = 0.16f),
-+                                Color.White.copy(alpha = 0.10f)
-+                            )
-+                        ),
-+                        shape = RoundedCornerShape(20.dp)
-+                    ),
++                    .standingScreen(onDesk = !showingPicture)
++                    .clip(RoundedCornerShape(4.dp))
++                    .drawWithContent {
++                        drawContent()
++                        screenGlare()
++                    },
 +                contentAlignment = Alignment.Center
 +            ) {
-+            val connecting = state == ServerState.RUNNING && connections > 0 &&
-+                !mirroringActive && !videoPlaybackActive
-+            run {
++                val connecting = state == ServerState.RUNNING && connections > 0 &&
++                    !mirroringActive && !videoPlaybackActive
++
                  if (state == ServerState.RUNNING && (mirroringActive || idlePreview)) {
                      video()
                  }
-@@ -628,8 +689,8 @@ private fun OverviewContent(
-                         Icon(
-                             imageVector = if (connections > 0) Icons.Default.CastConnected else Icons.Default.Cast,
-                             contentDescription = null,
+                 if (state != ServerState.RUNNING || connections == 0) {
+-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+-                        Icon(
+-                            imageVector = if (connections > 0) Icons.Default.CastConnected else Icons.Default.Cast,
+-                            contentDescription = null,
 -                            modifier = Modifier.size(64.dp),
 -                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-+                            modifier = Modifier.size(58.dp),
-+                            tint = Aero.Cyan.copy(alpha = 0.42f)
-                         )
-                         Spacer(Modifier.height(12.dp))
-                         Text(
-@@ -637,9 +698,11 @@ private fun OverviewContent(
-                                 ServerState.STOPPED -> stringResource(R.string.server_stopped)
-                                 ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
-                                 ServerState.ERROR -> stringResource(R.string.error_starting_server)
+-                        )
+-                        Spacer(Modifier.height(12.dp))
+-                        Text(
+-                            text = when (state) {
+-                                ServerState.STOPPED -> stringResource(R.string.server_stopped)
+-                                ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
+-                                ServerState.ERROR -> stringResource(R.string.error_starting_server)
 -                            },
 -                            style = MaterialTheme.typography.bodyLarge,
 -                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-+                            }.uppercase(),
-+                            fontFamily = Aero.Readout,
-+                            fontSize = 17.sp,
-+                            letterSpacing = 3.sp,
-+                            color = Aero.InkDim.copy(alpha = 0.82f)
-                         )
-                     }
+-                        )
+-                    }
++                    IdleReadout(
++                        text = when (state) {
++                            ServerState.STOPPED -> stringResource(R.string.server_stopped)
++                            ServerState.RUNNING -> stringResource(R.string.waiting_for_connection)
++                            ServerState.ERROR -> stringResource(R.string.error_starting_server)
++                        },
++                        lamp = when (state) {
++                            ServerState.RUNNING -> Aero.Aqua
++                            ServerState.ERROR -> Aero.Warm
++                            ServerState.STOPPED -> Aero.InkFaint
++                        },
++                        breathing = state == ServerState.RUNNING
++                    )
                  } else if (connecting) {
-@@ -651,13 +714,13 @@ private fun OverviewContent(
+-                    Text(
++                    IdleReadout(
+                         text = stringResource(R.string.waiting_for_playback),
+-                        style = MaterialTheme.typography.bodyLarge,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
++                        lamp = Aero.Aqua,
++                        breathing = true
+                     )
                  }
                  if (state == ServerState.RUNNING && mirroringActive) {
-                     Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+-                    Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
 -                        IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
-+                        IconButton(onClick = onPip, modifier = Modifier.aeroFocus()) {
++                    Row(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
++                        BacklitKey(onClick = onPip, size = 40.dp) { ink ->
                              Icon(
-                                 painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
-                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+-                                painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
+-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
++                                painterResource(R.drawable.ic_pip),
++                                contentDescription = stringResource(R.string.cd_pip),
++                                tint = ink,
++                                modifier = Modifier.size(20.dp)
                              )
                          }
 -                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus()) {
-+                        IconButton(onClick = onFullscreen, modifier = Modifier.aeroFocus()) {
++                        BacklitKey(onClick = onFullscreen, size = 40.dp) { ink ->
                              Icon(
-                                 Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
-                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-@@ -689,64 +752,22 @@ private fun OverviewContent(
-                     )
+-                                Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
+-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
++                                Icons.Default.Fullscreen,
++                                contentDescription = stringResource(R.string.cd_fullscreen),
++                                tint = ink,
++                                modifier = Modifier.size(22.dp)
+                             )
+                         }
+                     }
                  }
-             }
-+            }
-+            }
-         }
- 
+-            }
+-            if (debugEnabled && connections > 0) {
+-                DebugOverlay(debugInfo, Modifier.align(Alignment.TopStart).padding(8.dp))
+-            }
+-            var showRes by remember { mutableStateOf(false) }
+-            LaunchedEffect(videoResolution) {
+-                if (videoResolution.isNotEmpty() && !showAudioMode) {
+-                    showRes = true
+-                    delay(5000)
+-                    showRes = false
+-                }
+-            }
+-            if (!showAudioMode) {
+-                androidx.compose.animation.AnimatedVisibility(
+-                    visible = showRes && connections > 0,
+-                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+-                ) {
+-                    Text(
+-                        text = videoResolution,
+-                        style = MaterialTheme.typography.labelSmall,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+-                    )
++                if (debugEnabled && connections > 0) {
++                    DebugOverlay(debugInfo, Modifier.align(Alignment.TopStart).padding(8.dp))
+                 }
+-            }
+-        }
+-
 -        // controls
 -        Card(
 -            modifier = Modifier
@@ -1007,41 +1496,90 @@ index 81e662d..58b8285 100644
 -                            style = MaterialTheme.typography.bodySmall,
 -                            color = statusColor
 -                        )
--                    }
-+        Spacer(Modifier.height(22.dp))
- 
++                var showRes by remember { mutableStateOf(false) }
++                LaunchedEffect(videoResolution) {
++                    if (videoResolution.isNotEmpty() && !showAudioMode) {
++                        showRes = true
++                        delay(5000)
++                        showRes = false
+                     }
+-
 -                    FilledTonalButton(
 -                        onClick = {
 -                            if (state == ServerState.RUNNING) viewModel.stopServer()
 -                            else viewModel.startServer()
 -                        },
 -                        modifier = Modifier.dpadFocus().focusRequester(startFocus)
--                    ) {
++                }
++                if (!showAudioMode) {
++                    androidx.compose.animation.AnimatedVisibility(
++                        visible = showRes && connections > 0,
++                        modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
+                     ) {
 -                        Icon(
 -                            imageVector = if (state == ServerState.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
 -                            contentDescription = null,
 -                            modifier = Modifier.size(20.dp)
--                        )
++                        Text(
++                            text = videoResolution.uppercase(),
++                            fontFamily = Aero.Label,
++                            fontSize = 11.sp,
++                            letterSpacing = 1.6.sp,
++                            color = Aero.InkDim.copy(alpha = 0.7f)
+                         )
 -                        Spacer(Modifier.width(6.dp))
 -                        Text(if (state == ServerState.RUNNING) stringResource(R.string.btn_stop) else stringResource(R.string.btn_start))
--                    }
--                }
--            }
--        }
-+        ConnectionModule(
+                     }
+                 }
+             }
+         }
++
++        StatusModule(
 +            state = state,
 +            connections = connections,
 +            serverName = serverName,
-+            startFocus = startFocus,
-+            onToggle = {
++            powerFocus = powerFocus,
++            onPower = {
 +                if (state == ServerState.RUNNING) viewModel.stopServer() else viewModel.startServer()
 +            },
-+            modifier = Modifier.align(Alignment.Start)
++            modifier = Modifier
++                .align(Alignment.TopStart)
++                .padding(start = 44.dp, top = 20.dp)
++        )
++    }
++}
++
++/** What an idle screen shows: one line of light type and a lamp, nothing boxed. */
++@Composable
++private fun IdleReadout(text: String, lamp: Color, breathing: Boolean) {
++    val pulse = rememberInfiniteTransition(label = "idleLamp")
++    val breath by pulse.animateFloat(
++        initialValue = 0.35f,
++        targetValue = 1f,
++        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Reverse),
++        label = "idleBreath"
++    )
++    val level = if (breathing) breath else 0.25f
++    Row(verticalAlignment = Alignment.CenterVertically) {
++        Box(
++            modifier = Modifier
++                .size(10.dp)
++                .drawBehind {
++                    glow(center, 13.dp.toPx(), lamp, 0.5f * level)
++                    drawCircle(lamp.copy(alpha = 0.35f + 0.65f * level), radius = 3.5.dp.toPx())
++                }
++        )
++        Spacer(Modifier.width(16.dp))
++        Text(
++            text = text.lowercase().trimEnd('.', '…'),
++            fontFamily = Aero.Thin,
++            fontSize = 30.sp,
++            color = Aero.Ink.copy(alpha = 0.86f)
 +        )
      }
  }
  
-@@ -782,13 +803,13 @@ private fun FullscreenVideo(
+@@ -782,13 +845,13 @@ private fun FullscreenVideo(
              modifier = Modifier.align(Alignment.TopEnd)
          ) {
              Row(modifier = Modifier.padding(8.dp)) {
@@ -1057,23 +1595,101 @@ index 81e662d..58b8285 100644
                      Icon(
                          Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
                          tint = Color.White.copy(alpha = 0.7f)
-@@ -866,128 +887,323 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
- @AndroidxOptIn(UnstableApi::class)
- private fun NowPlayingContent(viewModel: MainViewModel) {
-     val track by viewModel.trackInfo.collectAsState()
-+    val player = viewModel.dacpPlayer
+@@ -820,174 +883,628 @@ private fun FullscreenVideo(
+     }
+ }
  
--    Column(
-+    // Words come from off the device, so they arrive after the track does.
+-// dacp scanning is press-and-hold: beginff/beginrew while held, playresume on release
++/**
++ * Shown on the list tabs while music plays: the sleeve, the song, and play/pause,
++ * set straight onto the room. Selecting the sleeve returns to the stage.
++ */
+ @Composable
+-private fun HoldScanButton(
+-    icon: ImageVector,
+-    contentDescription: String,
+-    onBegin: () -> Unit,
+-    onEnd: () -> Unit,
+-    modifier: Modifier = Modifier
+-) {
++@AndroidxOptIn(UnstableApi::class)
++private fun MiniPlayer(viewModel: MainViewModel, onOpen: () -> Unit, modifier: Modifier = Modifier) {
++    val player = viewModel.dacpPlayer ?: return
++    val track by viewModel.trackInfo.collectAsState()
++    val playState = rememberPlayPauseButtonState(player)
++
++    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
++        BacklitKey(onClick = onOpen, size = 56.dp) { _ ->
++            Box(
++                modifier = Modifier
++                    .size(44.dp)
++                    .clip(RoundedCornerShape(3.dp))
++                    .background(Aero.Night)
++            ) {
++                track.coverArt?.let {
++                    Image(
++                        bitmap = it.asImageBitmap(),
++                        contentDescription = stringResource(R.string.cd_cover_art),
++                        modifier = Modifier.fillMaxSize(),
++                        contentScale = ContentScale.Crop
++                    )
++                }
++            }
++        }
++        Column(modifier = Modifier.padding(start = 10.dp).widthIn(max = 300.dp)) {
++            Text(
++                text = track.title.ifEmpty { stringResource(R.string.unknown_track) },
++                fontFamily = Aero.Light,
++                fontSize = 17.sp,
++                color = Aero.Ink,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis
++            )
++            if (track.artist.isNotEmpty()) {
++                Text(
++                    text = track.artist,
++                    fontFamily = Aero.Light,
++                    fontSize = 14.sp,
++                    color = Aero.InkDim,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis
++                )
++            }
++        }
++        Spacer(Modifier.width(12.dp))
++        BacklitKey(onClick = { playState.onClick() }, enabled = playState.isEnabled, size = 44.dp) { ink ->
++            Icon(
++                imageVector = if (playState.showPlay) Icons.Default.PlayArrow else Icons.Default.Pause,
++                contentDescription = stringResource(R.string.cd_play_pause),
++                tint = ink,
++                modifier = Modifier.size(26.dp)
++            )
++        }
++    }
++}
++
++/**
++ * The music player as an object in the room.
++ *
++ * The sleeve stands on the desk with its reflection in the gloss below it. The words
++ * hang in the air to its right as a projection, with no panel behind them. The song
++ * title, the progress light and the keys sit on the desk surface, in front, where
++ * hardware controls would be. The keys stay dim until the remote is among them.
++ */
++@Composable
++@AndroidxOptIn(UnstableApi::class)
++private fun PlayerStage(viewModel: MainViewModel, horizon: Dp) {
++    val track by viewModel.trackInfo.collectAsState()
++    val player = viewModel.dacpPlayer
++
 +    // Lyrics you supply yourself live here and take priority over the database.
 +    val appContext = LocalContext.current.applicationContext
 +    val lyricsFolder = remember(appContext) {
 +        java.io.File(appContext.getExternalFilesDir(null), "lyrics")
 +    }
 +    var lyrics by remember { mutableStateOf<Lyrics>(Lyrics.Missing) }
-+    // Duration is what tells two songs of the same name apart, and the sender does
-+    // not always send it. Key on whether the player knows it yet so the lookup runs
-+    // again once it does.
++    // Duration separates two songs of the same name, and the sender does not always
++    // send it. Key on whether the player knows it yet so the lookup runs again then.
 +    val playerDurationMs = player?.duration?.takeIf { it > 0 } ?: 0L
 +    LaunchedEffect(track.title, track.artist, track.album, playerDurationMs > 0) {
 +        if (track.title.isBlank()) {
@@ -1084,13 +1700,10 @@ index 81e662d..58b8285 100644
 +        }
 +    }
 +
-+    // The sender only reports a position now and then, so reading it on a timer
-+    // makes the highlight arrive in visible steps behind the music. Take a reported
-+    // position as an anchor and run a real clock forward from it, resyncing only
-+    // when the two drift apart or playback stops. LYRIC_LEAD_MS then lights a line
-+    // just before it is sung, which is what reads as being on the beat rather than
-+    // chasing it.
-+    var positionMs by remember { mutableStateOf(0L) }
++    // The sender reports a position only now and then. Take each report as an anchor
++    // and run a real clock forward from it, resyncing when they drift apart or playback
++    // stops, so the progress light moves smoothly and lyrics land on the beat.
++    var clockMs by remember { mutableStateOf(0L) }
 +    LaunchedEffect(player) {
 +        var anchor = 0L
 +        var anchoredAt = SystemClock.elapsedRealtime()
@@ -1102,26 +1715,342 @@ index 81e662d..58b8285 100644
 +                anchor = reported
 +                anchoredAt = SystemClock.elapsedRealtime()
 +            }
-+            positionMs = if (playing) {
-+                anchor + (SystemClock.elapsedRealtime() - anchoredAt) + LYRIC_LEAD_MS
-+            } else {
-+                reported
-+            }
++            clockMs = if (playing) anchor + (SystemClock.elapsedRealtime() - anchoredAt) else reported
 +            delay(50)
 +        }
 +    }
 +
-+    BoxWithConstraints(
-         modifier = Modifier
-             .fillMaxSize()
++    val playFocus = remember { FocusRequester() }
++    LaunchedEffect(player != null) {
++        if (player != null) playFocus.requestFocusUntilLanded()
++    }
++
++    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
++        val sleeve = (horizon - 122.dp).coerceIn(140.dp, 260.dp)
++        val left = 64.dp
++        val stageRight = left + sleeve + 68.dp
++
++        // ------------------------------------------------------- sleeve and reflection
++        Sleeve(
++            cover = track.coverArt,
++            modifier = Modifier
++                .padding(start = left, top = horizon - sleeve)
++                .size(sleeve)
++        )
++        SleeveReflection(
++            cover = track.coverArt,
++            modifier = Modifier
++                .padding(start = left, top = horizon + 2.dp)
++                .size(width = sleeve, height = sleeve * 0.36f)
++        )
++
++        // ---------------------------------------------------------------- projection
++        LyricsProjection(
++            lyrics = lyrics,
++            positionMs = clockMs + LYRIC_LEAD_MS,
++            modifier = Modifier
++                .padding(start = stageRight, end = 76.dp, top = 84.dp)
++                .fillMaxWidth()
++                .height(horizon - 84.dp - 16.dp)
++        )
++
++        // ------------------------------------------------------------- on the desk
++        var awake by remember { mutableStateOf(true) }
++        val controlsLevel by animateFloatAsState(
++            targetValue = if (awake) 1f else 0.5f,
++            animationSpec = tween(500),
++            label = "controlsAwake"
++        )
++
++        Column(
++            modifier = Modifier
++                .padding(start = stageRight, end = 44.dp, top = horizon + 16.dp)
++                .fillMaxWidth()
++        ) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Column(modifier = Modifier.weight(1f)) {
++                    Text(
++                        text = track.title.ifEmpty { stringResource(R.string.unknown_track) },
++                        fontFamily = Aero.Light,
++                        fontSize = 33.sp,
++                        color = Aero.Ink,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis
++                    )
++                    val byline = listOf(track.artist, track.album).filter { it.isNotBlank() }.joinToString("  ·  ")
++                    if (byline.isNotEmpty()) {
++                        Text(
++                            text = byline,
++                            fontFamily = Aero.Light,
++                            fontSize = 16.sp,
++                            color = Aero.InkDim,
++                            maxLines = 1,
++                            overflow = TextOverflow.Ellipsis
++                        )
++                    }
++                }
++                if (player != null) {
++                    Row(
++                        modifier = Modifier
++                            .onFocusChanged { if (it.hasFocus) awake = true }
++                            .graphicsLayer { alpha = controlsLevel },
++                        verticalAlignment = Alignment.CenterVertically
++                    ) {
++                        BacklitKey(onClick = { viewModel.audioVolumeDown() }, size = 38.dp) { ink ->
++                            Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down), tint = ink, modifier = Modifier.size(22.dp))
++                        }
++                        BacklitKey(onClick = { viewModel.audioMuteToggle() }, size = 38.dp) { ink ->
++                            Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute), tint = ink, modifier = Modifier.size(22.dp))
++                        }
++                        BacklitKey(onClick = { viewModel.audioVolumeUp() }, size = 38.dp) { ink ->
++                            Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up), tint = ink, modifier = Modifier.size(22.dp))
++                        }
++                    }
++                }
++            }
++
++            Spacer(Modifier.height(12.dp))
++
++            if (player != null) {
++                val playState = rememberPlayPauseButtonState(player)
++                val previousState = rememberPreviousButtonState(player)
++                val nextState = rememberNextButtonState(player)
++                val durationMs = player.duration.takeIf { it > 0 } ?: 0L
++
++                Row(
++                    modifier = Modifier
++                        .fillMaxWidth()
++                        .onFocusChanged { awake = it.hasFocus }
++                        .graphicsLayer { alpha = controlsLevel },
++                    verticalAlignment = Alignment.CenterVertically
++                ) {
++                    ProgressLight(
++                        positionMs = clockMs,
++                        durationMs = durationMs,
++                        onSeek = { player.seekTo(it) },
++                        modifier = Modifier.weight(1f)
++                    )
++                    Spacer(Modifier.width(22.dp))
++                    HoldKey(
++                        onBegin = { viewModel.audioScanBegin(false) },
++                        onEnd = { viewModel.audioScanEnd() },
++                        size = 36.dp,
++                        onDesk = true
++                    ) { ink ->
++                        Icon(Icons.Default.FastRewind, stringResource(R.string.cd_rewind), tint = ink, modifier = Modifier.size(20.dp))
++                    }
++                    BacklitKey(
++                        onClick = { previousState.onClick() },
++                        enabled = previousState.isEnabled,
++                        size = 44.dp,
++                        onDesk = true
++                    ) { ink ->
++                        Icon(Icons.Default.SkipPrevious, null, tint = ink, modifier = Modifier.size(28.dp))
++                    }
++                    Spacer(Modifier.width(6.dp))
++                    GlossDome(
++                        onClick = { playState.onClick() },
++                        enabled = playState.isEnabled,
++                        diameter = 56.dp,
++                        modifier = Modifier.focusRequester(playFocus)
++                    ) {
++                        Icon(
++                            imageVector = if (playState.showPlay) Icons.Default.PlayArrow else Icons.Default.Pause,
++                            contentDescription = stringResource(R.string.cd_play_pause),
++                            tint = Color.White,
++                            modifier = Modifier.size(30.dp)
++                        )
++                    }
++                    Spacer(Modifier.width(6.dp))
++                    BacklitKey(
++                        onClick = { nextState.onClick() },
++                        enabled = nextState.isEnabled,
++                        size = 44.dp,
++                        onDesk = true
++                    ) { ink ->
++                        Icon(Icons.Default.SkipNext, null, tint = ink, modifier = Modifier.size(28.dp))
++                    }
++                    HoldKey(
++                        onBegin = { viewModel.audioScanBegin(true) },
++                        onEnd = { viewModel.audioScanEnd() },
++                        size = 36.dp,
++                        onDesk = true
++                    ) { ink ->
++                        Icon(Icons.Default.FastForward, stringResource(R.string.cd_fast_forward), tint = ink, modifier = Modifier.size(20.dp))
++                    }
++                }
++            }
++        }
++    }
++}
++
++/** The sleeve itself: artwork behind a glass face, casting a shadow onto the wall. */
++@Composable
++private fun Sleeve(cover: android.graphics.Bitmap?, modifier: Modifier = Modifier) {
+     Box(
+         modifier = modifier
+-            .size(48.dp)
+-            .clip(CircleShape)
+-            .pointerInput(Unit) {
+-                detectTapGestures(onPress = {
+-                    onBegin()
+-                    try {
+-                        awaitRelease()
+-                    } finally {
+-                        onEnd()
+-                    }
+-                })
++            .drawBehind {
++                val w = size.width
++                val h = size.height
++                // A soft shadow on the wall, built from faint expanding layers. One
++                // offset rectangle read as a second box behind the sleeve.
++                val step = 2.dp.toPx()
++                for (i in 1..7) {
++                    val grow = step * i
++                    drawRoundRect(
++                        Color.Black.copy(alpha = 0.05f),
++                        topLeft = Offset(-grow * 0.6f, step * 2f - grow * 0.2f),
++                        size = Size(w + grow * 1.2f, h + grow * 0.9f),
++                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx() + grow)
++                    )
++                }
++                // contact shadow where it meets the desk
++                deskLight(Offset(w / 2f, h), w * 0.62f, Color.Black, 0.55f)
++            }
++            .clip(RoundedCornerShape(3.dp))
++            .background(Aero.Night)
++            .drawWithContent {
++                drawContent()
++                val w = size.width
++                val h = size.height
++                // glass face: a diagonal sheen and a lit top edge
++                drawRect(
++                    Brush.linearGradient(
++                        0f to Color.White.copy(alpha = 0.16f),
++                        0.38f to Color.White.copy(alpha = 0.02f),
++                        0.39f to Color.Transparent,
++                        1f to Color.Transparent,
++                        start = Offset(0f, 0f),
++                        end = Offset(w, h),
++                    )
++                )
++                drawRect(Color.White.copy(alpha = 0.30f), size = Size(w, 1.2f))
+             },
+         contentAlignment = Alignment.Center
+     ) {
+-        Icon(icon, contentDescription)
++        if (cover != null) {
++            Image(
++                bitmap = cover.asImageBitmap(),
++                contentDescription = stringResource(R.string.cd_cover_art),
++                modifier = Modifier.fillMaxSize(),
++                contentScale = ContentScale.Crop
++            )
++        } else {
++            Icon(
++                Icons.Default.MusicNote,
++                contentDescription = null,
++                modifier = Modifier.size(52.dp),
++                tint = Aero.Sky.copy(alpha = 0.30f)
++            )
++        }
+     }
+ }
+ 
++/**
++ * The sleeve mirrored in the gloss of the desk.
++ *
++ * The bottom slice of the artwork, flipped, faded out through an alpha mask on an
++ * offscreen layer. The earlier version faded into a fixed desk colour, which did not
++ * match the lit edge of the desk and showed as a dark box under the sleeve. A mask
++ * fades to nothing, so whatever the desk looks like underneath shows through. The
++ * layer is the size of the reflection only, which the GPU on the stick handles
++ * without trouble.
++ */
+ @Composable
+-@AndroidxOptIn(UnstableApi::class)
+-private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onClick: () -> Unit) {
+-    if (!visible) return
+-    val player = viewModel.dacpPlayer ?: return
+-    val context = LocalContext.current
+-    MiniController(
+-        player,
+-        bitmapLoader = remember { DataSourceBitmapLoader(context) },
+-        onClick = onClick
++private fun SleeveReflection(cover: android.graphics.Bitmap?, modifier: Modifier = Modifier) {
++    if (cover == null) return
++    Box(
++        modifier = modifier
++            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
++            .drawWithCache {
++                val image = cover.asImageBitmap()
++                val boxW = size.width.toInt().coerceAtLeast(1)
++                val boxH = size.height.toInt().coerceAtLeast(1)
++                val side = minOf(image.width, image.height)
++                val srcX = (image.width - side) / 2
++                val sliceH = (side * (size.height / size.width)).toInt().coerceIn(1, side)
++                val srcY = (image.height - side) / 2 + side - sliceH
++                val fade = Brush.verticalGradient(
++                    0f to Color.Black.copy(alpha = 0.28f),
++                    0.7f to Color.Black.copy(alpha = 0.06f),
++                    1f to Color.Transparent
++                )
++                onDrawBehind {
++                    withTransform({ scale(1f, -1f, pivot = center) }) {
++                        drawImage(
++                            image = image,
++                            srcOffset = IntOffset(srcX, srcY),
++                            srcSize = IntSize(side, sliceH),
++                            dstSize = IntSize(boxW, boxH)
++                        )
++                    }
++                    drawRect(fade, blendMode = BlendMode.DstIn)
++                }
++            }
+     )
+ }
+ 
++/**
++ * Progress as a thin light guide rather than a slider. Focused, it brightens and its
++ * head grows, and left and right on the remote step through the song ten seconds at
++ * a time; the seek is sent once the presses stop, so holding a key does not flood
++ * the sender with requests.
++ */
+ @Composable
+-@AndroidxOptIn(UnstableApi::class)
+-private fun NowPlayingContent(viewModel: MainViewModel) {
+-    val track by viewModel.trackInfo.collectAsState()
++private fun ProgressLight(
++    positionMs: Long,
++    durationMs: Long,
++    onSeek: (Long) -> Unit,
++    modifier: Modifier = Modifier
++) {
++    val source = remember { MutableInteractionSource() }
++    val focused by source.collectIsFocusedAsState()
++    val lit by animateFloatAsState(if (focused) 1f else 0f, spring(dampingRatio = 0.75f), label = "railLit")
++    var scrubMs by remember { mutableStateOf<Long?>(null) }
++    LaunchedEffect(scrubMs) {
++        val target = scrubMs ?: return@LaunchedEffect
++        delay(450)
++        onSeek(target)
++        scrubMs = null
++    }
++    val shownMs = scrubMs ?: positionMs
++    val fraction = if (durationMs > 0) (shownMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+ 
+-    Column(
+-        modifier = Modifier
+-            .fillMaxSize()
 -            .padding(24.dp),
 -        horizontalAlignment = Alignment.CenterHorizontally,
 -        verticalArrangement = Arrangement.Center
-+            .padding(horizontal = 44.dp, vertical = 30.dp)
-     ) {
+-    ) {
 -        // cover art
--        Box(
--            modifier = Modifier
++    Column(modifier = modifier) {
+         Box(
+             modifier = Modifier
 -                .weight(1f, fill = false)
 -                .aspectRatio(1f)
 -                .fillMaxWidth(0.7f)
@@ -1142,134 +2071,12 @@ index 81e662d..58b8285 100644
 -                    contentDescription = null,
 -                    modifier = Modifier.size(64.dp),
 -                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-+        // Size the sleeve off both axes. Squeezing a square into a 16:9 column by
-+        // width alone is what cut the artwork in half.
-+        val coverSide = minOf(maxWidth * 0.30f, maxHeight * 0.62f)
-+
-+        Row(modifier = Modifier.fillMaxSize()) {
-+
-+            Column(modifier = Modifier.weight(0.44f)) {
-+                Box(
-+                    modifier = Modifier
-+                        .size(coverSide)
-+                        .coverTile(RoundedCornerShape(20.dp)),
-+                    contentAlignment = Alignment.Center
-+                ) {
-+                    if (track.coverArt != null) {
-+                        Image(
-+                            bitmap = track.coverArt!!.asImageBitmap(),
-+                            contentDescription = stringResource(R.string.cd_cover_art),
-+                            modifier = Modifier.fillMaxSize(),
-+                            contentScale = ContentScale.Crop
-+                        )
-+                    } else {
-+                        Icon(
-+                            Icons.Default.MusicNote,
-+                            contentDescription = null,
-+                            modifier = Modifier.size(56.dp),
-+                            tint = Aero.Sky.copy(alpha = 0.34f)
-+                        )
-+                    }
-+                }
-+
-+                Spacer(Modifier.height(22.dp))
-+
-+                Text(
-+                    text = track.title.ifEmpty { stringResource(R.string.unknown_track) },
-+                    fontFamily = Aero.Display,
-+                    fontSize = 34.sp,
-+                    color = Aero.Ink,
-+                    maxLines = 2,
-+                    overflow = TextOverflow.Ellipsis
-                 )
-+                if (track.artist.isNotEmpty()) {
-+                    Spacer(Modifier.height(4.dp))
-+                    Text(
-+                        text = track.artist,
-+                        fontFamily = Aero.Display,
-+                        fontSize = 21.sp,
-+                        color = Aero.InkDim,
-+                        maxLines = 1,
-+                        overflow = TextOverflow.Ellipsis
-+                    )
-+                }
-+                if (track.album.isNotEmpty()) {
-+                    Spacer(Modifier.height(6.dp))
-+                    Text(
-+                        text = track.album.uppercase(),
-+                        fontFamily = Aero.Readout,
-+                        fontSize = 13.sp,
-+                        letterSpacing = 2.2.sp,
-+                        color = Aero.InkDim.copy(alpha = 0.62f),
-+                        maxLines = 1,
-+                        overflow = TextOverflow.Ellipsis
-+                    )
-+                }
-+
-+                Spacer(Modifier.weight(1f))
-+
-+                if (player != null) {
-+                    Row(
-+                        modifier = Modifier.fillMaxWidth(),
-+                        verticalAlignment = Alignment.CenterVertically
-+                    ) {
-+                        PositionText(player, Modifier.padding(end = 10.dp))
-+                        Box(modifier = Modifier.weight(1f)) { ProgressSlider(player) }
-+                        DurationText(player, Modifier.padding(start = 10.dp))
-+                    }
-+
-+                    Spacer(Modifier.height(10.dp))
-+
-+                    Row(
-+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-+                        verticalAlignment = Alignment.CenterVertically
-+                    ) {
-+                        HoldScanButton(
-+                            icon = Icons.Default.FastRewind,
-+                            contentDescription = stringResource(R.string.cd_rewind),
-+                            onBegin = { viewModel.audioScanBegin(false) },
-+                            onEnd = { viewModel.audioScanEnd() }
-+                        )
-+                        PreviousButton(player, modifier = Modifier.aeroFocus(CircleShape))
-+                        PlayPauseButton(
-+                            player,
-+                            modifier = Modifier.size(62.dp).aeroFocus(CircleShape),
-+                            iconSize = 38.dp
-+                        )
-+                        NextButton(player, modifier = Modifier.aeroFocus(CircleShape))
-+                        HoldScanButton(
-+                            icon = Icons.Default.FastForward,
-+                            contentDescription = stringResource(R.string.cd_fast_forward),
-+                            onBegin = { viewModel.audioScanBegin(true) },
-+                            onEnd = { viewModel.audioScanEnd() }
-+                        )
-+                        Spacer(Modifier.width(10.dp))
-+                        IconButton(
-+                            onClick = { viewModel.audioVolumeDown() },
-+                            modifier = Modifier.aeroFocus(CircleShape)
-+                        ) {
-+                            Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
-+                        }
-+                        IconButton(
-+                            onClick = { viewModel.audioMuteToggle() },
-+                            modifier = Modifier.aeroFocus(CircleShape)
-+                        ) {
-+                            Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
-+                        }
-+                        IconButton(
-+                            onClick = { viewModel.audioVolumeUp() },
-+                            modifier = Modifier.aeroFocus(CircleShape)
-+                        ) {
-+                            Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
-+                        }
-+                    }
-+                }
-             }
+-                )
+-            }
 -        }
- 
+-
 -        Spacer(Modifier.height(20.dp))
-+            Spacer(Modifier.width(40.dp))
- 
+-
 -        // track info
 -        Text(
 -            text = track.title.ifEmpty { stringResource(R.string.unknown_track) },
@@ -1277,55 +2084,97 @@ index 81e662d..58b8285 100644
 -            fontWeight = FontWeight.SemiBold,
 -            maxLines = 1,
 -            overflow = TextOverflow.Ellipsis
--        )
++                .fillMaxWidth()
++                .height(22.dp)
++                .onPreviewKeyEvent { e ->
++                    if (e.type != KeyEventType.KeyDown || durationMs <= 0) return@onPreviewKeyEvent false
++                    when (e.key) {
++                        Key.DirectionLeft -> {
++                            scrubMs = ((scrubMs ?: positionMs) - 10_000L).coerceAtLeast(0L)
++                            true
++                        }
++                        Key.DirectionRight -> {
++                            scrubMs = ((scrubMs ?: positionMs) + 10_000L).coerceAtMost(durationMs)
++                            true
++                        }
++                        else -> false
++                    }
++                }
++                .focusable(interactionSource = source)
++                .drawBehind {
++                    val y = size.height / 2f
++                    val w = size.width
++                    val thickness = (2f + 1.2f * lit).dp.toPx()
++                    val x = w * fraction
++                    val cap = androidx.compose.ui.geometry.CornerRadius(thickness)
++                    drawRoundRect(
++                        Color.White.copy(alpha = 0.11f + 0.08f * lit),
++                        topLeft = Offset(0f, y - thickness / 2f),
++                        size = Size(w, thickness),
++                        cornerRadius = cap
++                    )
++                    if (x > 0.5f) {
++                        // the lit length, with a faint halo along it
++                        drawRoundRect(
++                            Aero.Aqua.copy(alpha = 0.14f + 0.16f * lit),
++                            topLeft = Offset(0f, y - thickness * 2.6f),
++                            size = Size(x, thickness * 5.2f),
++                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(thickness * 2.6f)
++                        )
++                        drawRoundRect(
++                            Brush.horizontalGradient(
++                                listOf(Aero.Aqua.copy(alpha = 0.55f), Color.White.copy(alpha = 0.95f)),
++                                startX = 0f,
++                                endX = x
++                            ),
++                            topLeft = Offset(0f, y - thickness / 2f),
++                            size = Size(x, thickness),
++                            cornerRadius = cap
++                        )
++                    }
++                    glow(Offset(x, y), (8f + 7f * lit).dp.toPx(), Aero.Aqua, 0.60f)
++                    drawCircle(Color.White, radius = (2.6f + 1.8f * lit).dp.toPx(), center = Offset(x, y))
++                }
+         )
 -        if (track.artist.isNotEmpty()) {
--            Text(
++        Row(modifier = Modifier.fillMaxWidth()) {
+             Text(
 -                text = track.artist,
 -                style = MaterialTheme.typography.bodyMedium,
 -                color = MaterialTheme.colorScheme.onSurfaceVariant,
 -                maxLines = 1,
 -                overflow = TextOverflow.Ellipsis
-+            LyricsPanel(
-+                lyrics = lyrics,
-+                positionMs = positionMs,
-+                modifier = Modifier
-+                    .weight(0.56f)
-+                    .fillMaxHeight()
-+                    .padding(end = 40.dp)
++                text = formatClock(shownMs),
++                fontFamily = Aero.Label,
++                fontSize = 12.sp,
++                letterSpacing = 1.2.sp,
++                color = if (scrubMs != null) Aero.Aqua else Aero.InkDim.copy(alpha = 0.8f)
              )
-         }
+-        }
 -        if (track.album.isNotEmpty()) {
-+    }
-+}
-+
-+/**
-+ * The words, following the music.
-+ *
-+ * The sung line is bright and set large; everything else recedes by opacity alone,
-+ * with no rules, boxes or scrollbars, so the eye lands on the right line without
-+ * being told where to look. Nothing here is generated: a track with no entry in the
-+ * database says so plainly rather than inventing something plausible.
-+ */
-+@Composable
-+private fun LyricsPanel(lyrics: Lyrics, positionMs: Long, modifier: Modifier = Modifier) {
-+    Column(modifier = modifier) {
-+        Row(verticalAlignment = Alignment.CenterVertically) {
++            Spacer(Modifier.weight(1f))
              Text(
 -                text = track.album,
 -                style = MaterialTheme.typography.bodySmall,
 -                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
 -                maxLines = 1,
 -                overflow = TextOverflow.Ellipsis
-+                text = stringResource(R.string.lyrics_title).uppercase(),
-+                fontFamily = Aero.Readout,
-+                fontSize = 13.sp,
-+                letterSpacing = 3.sp,
-+                color = Aero.Cyan.copy(alpha = 0.85f)
++                text = if (durationMs > 0) formatClock(durationMs) else "",
++                fontFamily = Aero.Label,
++                fontSize = 12.sp,
++                letterSpacing = 1.2.sp,
++                color = Aero.InkFaint
              )
--        }
--
+         }
++    }
++}
+ 
 -        Spacer(Modifier.height(16.dp))
--
++private fun formatClock(ms: Long): String {
++    val total = (ms / 1000).coerceAtLeast(0)
++    return "%d:%02d".format(total / 60, total % 60)
++}
+ 
 -        val player = viewModel.dacpPlayer
 -        if (player != null) {
 -            // BottomControls' default row, minus its video-overlay gradient
@@ -1333,23 +2182,41 @@ index 81e662d..58b8285 100644
 -                PositionText(player, Modifier.padding(end = 8.dp))
 -                Box(modifier = Modifier.weight(1f)) { ProgressSlider(player) }
 -                DurationText(player, Modifier.padding(start = 8.dp))
-+            if (lyrics is Lyrics.Timed || lyrics is Lyrics.Plain) {
-+                Spacer(Modifier.width(12.dp))
-+                Text(
-+                    text = stringResource(R.string.lyrics_source),
-+                    fontFamily = Aero.Readout,
-+                    fontSize = 12.sp,
-+                    letterSpacing = 1.sp,
-+                    color = Aero.InkDim.copy(alpha = 0.40f)
-+                )
-             }
-+        }
-+        Spacer(Modifier.height(14.dp))
+-            }
++/**
++ * The words, projected into the room.
++ *
++ * No panel and no heading. The sung line sits a third of the way down, bright, with
++ * a faint aqua glow as if emitted rather than printed; the lines around it fall away
++ * by opacity with distance, which fades the block out at top and bottom without a
++ * mask. A thin beam at the leading edge suggests where the projection comes from.
++ * Every line uses the same face and size, and emphasis is drawn rather than laid
++ * out, so a change of line never reflows the list. Nothing here is generated.
++ */
++@Composable
++private fun LyricsProjection(lyrics: Lyrics, positionMs: Long, modifier: Modifier = Modifier) {
++    BoxWithConstraints(modifier = modifier) {
++        val anchor = maxHeight * 0.34f
  
 -            Spacer(Modifier.height(8.dp))
-+        when (lyrics) {
-+            is Lyrics.Loading -> LyricsNote(stringResource(R.string.lyrics_loading))
-+            is Lyrics.Missing -> LyricsNote(stringResource(R.string.lyrics_none))
++        // the projector beam, only when there is something being projected
++        if (lyrics is Lyrics.Timed || lyrics is Lyrics.Plain) Box(
++            modifier = Modifier
++                .align(Alignment.CenterStart)
++                .offset(x = (-26).dp)
++                .width(1.dp)
++                .fillMaxHeight()
++                .drawBehind {
++                    drawRect(
++                        Brush.verticalGradient(
++                            0f to Color.Transparent,
++                            0.34f to Aero.Aqua.copy(alpha = 0.30f),
++                            1f to Aero.Aqua.copy(alpha = 0.06f),
++                        )
++                    )
++                    glow(Offset(size.width / 2f, size.height), 10.dp.toPx(), Aero.Aqua, 0.45f)
++                }
++        )
  
 -            Row(
 -                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
@@ -1374,21 +2241,17 @@ index 81e662d..58b8285 100644
 -                    contentDescription = stringResource(R.string.cd_fast_forward),
 -                    onBegin = { viewModel.audioScanBegin(true) },
 -                    onEnd = { viewModel.audioScanEnd() }
--                )
-+            is Lyrics.Plain -> {
-+                val listState = rememberLazyListState()
-+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-+                    items(lyrics.lines.size) { i ->
-+                        Text(
-+                            text = lyrics.lines[i],
-+                            fontFamily = Aero.Display,
-+                            fontSize = 23.sp,
-+                            lineHeight = 36.sp,
-+                            color = Aero.Ink.copy(alpha = 0.72f),
-+                            modifier = Modifier.padding(vertical = 5.dp)
-+                        )
-+                    }
-+                }
++        when (lyrics) {
++            is Lyrics.Loading, is Lyrics.Missing -> {
++                Text(
++                    text = stringResource(
++                        if (lyrics is Lyrics.Loading) R.string.lyrics_loading else R.string.lyrics_none
++                    ).lowercase().trimEnd('.', '…'),
++                    fontFamily = Aero.Thin,
++                    fontSize = 27.sp,
++                    color = Aero.InkDim.copy(alpha = 0.60f),
++                    modifier = Modifier.padding(top = anchor)
+                 )
              }
  
 -            Row(
@@ -1398,55 +2261,80 @@ index 81e662d..58b8285 100644
 -            ) {
 -                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.dpadFocus()) {
 -                    Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
--                }
++            is Lyrics.Plain -> {
++                LazyColumn(
++                    modifier = Modifier.fillMaxSize(),
++                    contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
++                ) {
++                    items(lyrics.lines.size) { i ->
++                        Text(
++                            text = lyrics.lines[i],
++                            fontFamily = Aero.Light,
++                            fontSize = 22.sp,
++                            lineHeight = 34.sp,
++                            color = Aero.Ink.copy(alpha = 0.66f),
++                            modifier = Modifier.padding(vertical = 5.dp)
++                        )
++                    }
+                 }
 -                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.dpadFocus()) {
 -                    Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
++            }
++
 +            is Lyrics.Timed -> {
 +                val active = LyricsSource.activeIndex(lyrics.lines, positionMs)
 +                val listState = rememberLazyListState()
 +                LaunchedEffect(active) {
-+                    if (active >= 0) {
-+                        // keep the sung line a little down the panel, not at the top
-+                        listState.animateScrollToItem(maxOf(0, active - 2))
-+                    }
++                    if (active >= 0) listState.animateScrollToItem(active)
                  }
 -                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.dpadFocus()) {
 -                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
-+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
++                LazyColumn(
++                    state = listState,
++                    userScrollEnabled = false,
++                    modifier = Modifier.fillMaxSize(),
++                    contentPadding = PaddingValues(top = anchor, bottom = maxHeight - anchor)
++                ) {
 +                    items(lyrics.lines.size) { i ->
 +                        val line = lyrics.lines[i]
-+                        val isNow = i == active
 +                        val distance = kotlin.math.abs(i - active)
++                        val isNow = i == active
 +                        val fade by animateFloatAsState(
-+                            targetValue = when {
-+                                isNow -> 1f
-+                                distance <= 2 -> 0.42f
-+                                else -> 0.22f
++                            targetValue = when (distance) {
++                                0 -> 1f
++                                1 -> 0.44f
++                                2 -> 0.24f
++                                3 -> 0.13f
++                                else -> 0.06f
 +                            },
-+                            animationSpec = tween(320),
++                            animationSpec = tween(420),
 +                            label = "lyricFade"
 +                        )
-+                        // Scale when drawing rather than changing the type size.
-+                        // Animating fontSize changes the measured height of the row
-+                        // every frame, so the list reflows underneath its own scroll
-+                        // animation and lines briefly draw on top of each other.
 +                        val grow by animateFloatAsState(
-+                            targetValue = if (isNow) 1.14f else 1f,
-+                            animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessLow),
++                            targetValue = if (isNow) 1.07f else 1f,
++                            animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow),
 +                            label = "lyricGrow"
 +                        )
 +                        if (line.text.isEmpty()) {
-+                            Spacer(Modifier.height(18.dp))
++                            Spacer(Modifier.height(20.dp))
 +                        } else {
 +                            Text(
 +                                text = line.text,
-+                                fontFamily = Aero.Display,
-+                                fontSize = 25.sp,
-+                                lineHeight = 38.sp,
-+                                color = if (isNow) Aero.Ink else Aero.Ink.copy(alpha = fade),
++                                style = TextStyle(
++                                    fontFamily = Aero.Light,
++                                    fontSize = 25.sp,
++                                    lineHeight = 36.sp,
++                                    color = Aero.Ink,
++                                    shadow = Shadow(
++                                        color = Aero.Aqua.copy(alpha = if (isNow) 0.60f else 0f),
++                                        offset = Offset.Zero,
++                                        blurRadius = 22f
++                                    )
++                                ),
 +                                modifier = Modifier
-+                                    .padding(vertical = 7.dp, horizontal = 0.dp)
++                                    .padding(vertical = 7.dp)
 +                                    .graphicsLayer {
++                                        alpha = fade
 +                                        scaleX = grow
 +                                        scaleY = grow
 +                                        transformOrigin = TransformOrigin(0f, 0.5f)
@@ -1460,168 +2348,171 @@ index 81e662d..58b8285 100644
      }
  }
  
-+@Composable
-+private fun LyricsNote(text: String) {
-+    Box(modifier = Modifier.fillMaxSize()) {
-+        Text(
-+            text = text,
-+            fontFamily = Aero.Display,
-+            fontSize = 20.sp,
-+            color = Aero.InkDim.copy(alpha = 0.48f),
-+            modifier = Modifier.padding(top = 8.dp)
-+        )
-+    }
-+}
-+
 +/** Lights a lyric line slightly before it is sung; anything less reads as lagging. */
 +private const val LYRIC_LEAD_MS = 320L
 +
  private const val VIDEO_OVERLAY_HIDE_MS = 4000L
  
  @Composable
-@@ -1039,3 +1255,146 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
+@@ -1039,3 +1556,162 @@ private fun debugOverlaySections(context: Context, info: DebugInfo): List<DebugS
  private fun formatDecode(meanUs: Int, maxUs: Int, held: Int, errors: Int): String =
      (if (meanUs == 0) "held=$held"
      else "%.1f/%.1f ms held=%d".format(meanUs / 1000.0, maxUs / 1000.0, held)) + " errs=$errors"
 +
 +/**
-+ * A key on the control strip. Unselected it is bare; selected it becomes a lit pane
-+ * of acrylic. That is a state readable from across a room without resorting to a
-+ * coloured pill behind the label.
++ * The receiver's status, built like the indicator on a piece of hardware: a lamp,
++ * a line of small caps, the device name, and the power key beside it. No container:
++ * the lamp and the type carry it, straight on the wall.
 + */
 +@Composable
-+private fun NavKey(selected: Boolean, tab: Tab, onClick: () -> Unit) {
-+    val lit by animateFloatAsState(
-+        targetValue = if (selected) 1f else 0f,
-+        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
-+        label = "navKey"
++private fun StatusModule(
++    state: ServerState,
++    connections: Int,
++    serverName: String,
++    powerFocus: FocusRequester,
++    onPower: () -> Unit,
++    modifier: Modifier = Modifier
++) {
++    val live = state == ServerState.RUNNING
++    val lamp = when {
++        state == ServerState.ERROR -> Aero.Warm
++        !live -> Aero.InkFaint
++        connections > 0 -> Aero.Aqua
++        else -> Aero.Cyan
++    }
++    val pulse = rememberInfiniteTransition(label = "statusLamp")
++    val breath by pulse.animateFloat(
++        initialValue = 0.45f,
++        targetValue = 1f,
++        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Reverse),
++        label = "statusBreath"
 +    )
-+    Row(
-+        modifier = Modifier
-+            .aeroFocus(RoundedCornerShape(50), Aero.Cyan)
-+            .clip(RoundedCornerShape(50))
-+            .background(
-+                Brush.verticalGradient(
-+                    listOf(
-+                        Color.White.copy(alpha = 0.22f * lit),
-+                        Color.White.copy(alpha = 0.05f * lit)
-+                    )
-+                )
++    val level = if (live) breath else 0.2f
++
++    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
++        Box(
++            modifier = Modifier
++                .size(12.dp)
++                .drawBehind {
++                    glow(center, 16.dp.toPx(), lamp, 0.55f * level)
++                    drawCircle(lamp.copy(alpha = 0.40f + 0.60f * level), radius = 4.dp.toPx())
++                    drawCircle(Color.White.copy(alpha = 0.55f * level), radius = 1.3.dp.toPx(), center = center - Offset(1.dp.toPx(), 1.dp.toPx()))
++                }
++        )
++        Spacer(Modifier.width(14.dp))
++        Column {
++            Text(
++                text = stringResource(
++                    when {
++                        state == ServerState.ERROR -> R.string.error_label
++                        !live -> R.string.stopped_label
++                        connections > 0 -> R.string.status_connected
++                        else -> R.string.status_listening
++                    }
++                ).uppercase(),
++                fontFamily = Aero.Label,
++                fontSize = 12.sp,
++                letterSpacing = 2.6.sp,
++                color = lamp.copy(alpha = 0.95f)
 +            )
-+            .illuminate(RoundedCornerShape(50), Aero.Cyan, 0.5f * lit, 12.dp)
-+            .clickable(onClick = onClick)
-+            .padding(horizontal = 26.dp, vertical = 12.dp),
-+        verticalAlignment = Alignment.CenterVertically
-+    ) {
-+        Icon(
-+            tab.icon,
-+            contentDescription = null,
-+            modifier = Modifier.size(24.dp),
-+            tint = Aero.Ink.copy(alpha = 0.52f + 0.48f * lit)
-+        )
-+        Spacer(Modifier.width(10.dp))
-+        Text(
-+            text = stringResource(tab.labelRes).uppercase(),
-+            fontFamily = Aero.Readout,
-+            fontSize = 15.sp,
-+            letterSpacing = 2.sp,
-+            color = Aero.Ink.copy(alpha = 0.52f + 0.48f * lit)
-+        )
++            Row(verticalAlignment = Alignment.Bottom) {
++                Text(
++                    text = serverName,
++                    fontFamily = Aero.Light,
++                    fontSize = 20.sp,
++                    color = Aero.Ink
++                )
++                if (live && connections > 0) {
++                    Text(
++                        text = "   " + if (connections == 1) {
++                            stringResource(R.string.status_device_one)
++                        } else {
++                            stringResource(R.string.status_device_many, connections)
++                        },
++                        fontFamily = Aero.Light,
++                        fontSize = 15.sp,
++                        color = Aero.InkDim
++                    )
++                }
++            }
++        }
++        Spacer(Modifier.width(24.dp))
++        PowerKey(
++            on = live,
++            onClick = onPower,
++            diameter = 36.dp,
++            modifier = Modifier.focusRequester(powerFocus)
++        ) { ink ->
++            Icon(
++                Icons.Default.PowerSettingsNew,
++                contentDescription = stringResource(if (live) R.string.btn_stop else R.string.btn_start),
++                tint = ink,
++                modifier = Modifier.size(18.dp)
++            )
++        }
 +    }
 +}
 +
 +/**
-+ * The receiver as a small piece of hardware rather than a status card: a lamp that
-+ * breathes while it is listening, a readout, and one moulded key you press. It is
-+ * sized to its contents and docked in a corner, so it never reads as a second panel
-+ * competing with the display.
++ * Navigation as backlit function keys on the bezel rather than a bar. Each is an
++ * icon and a word in small caps; the current one carries a lit light guide beneath
++ * it, and the focused one glows from behind. No capsule encloses them.
 + */
 +@Composable
-+private fun ConnectionModule(
-+    state: ServerState,
-+    connections: Int,
-+    serverName: String,
-+    startFocus: FocusRequester,
-+    onToggle: () -> Unit,
-+    modifier: Modifier = Modifier
-+) {
-+    val live = state == ServerState.RUNNING
-+    val lampColor = when (state) {
-+        ServerState.RUNNING -> if (connections > 0) Aero.Aqua else Aero.Cyan
-+        ServerState.ERROR -> Color(0xFFFF7A7A)
-+        ServerState.STOPPED -> Aero.InkDim
-+    }
-+    // A listening receiver breathes; a stopped one sits dark.
-+    val pulse = rememberInfiniteTransition(label = "lamp")
-+    val breath by pulse.animateFloat(
-+        initialValue = 0.40f,
-+        targetValue = 1f,
-+        animationSpec = infiniteRepeatable(tween(1900, easing = LinearEasing), RepeatMode.Reverse),
-+        label = "breath"
-+    )
-+    val lamp = if (live) breath else 0.18f
-+
-+    Row(
-+        modifier = modifier
-+            .acrylic(RoundedCornerShape(20.dp), Aero.Sky)
-+            .padding(start = 24.dp, end = 18.dp, top = 18.dp, bottom = 18.dp),
-+        verticalAlignment = Alignment.CenterVertically
-+    ) {
-+        Box(
-+            modifier = Modifier
-+                .size(13.dp)
-+                .illuminate(CircleShape, lampColor, lamp, 11.dp)
-+                .clip(CircleShape)
-+                .background(lampColor.copy(alpha = 0.30f + 0.70f * lamp))
-+        )
-+        Spacer(Modifier.width(18.dp))
-+        Column {
-+            Text(
-+                text = when (state) {
-+                    ServerState.RUNNING -> stringResource(R.string.connected_count, connections)
-+                    ServerState.ERROR -> stringResource(R.string.error_label)
-+                    ServerState.STOPPED -> stringResource(R.string.stopped_label)
-+                }.uppercase(),
-+                fontFamily = Aero.Readout,
-+                fontSize = 14.sp,
-+                letterSpacing = 2.4.sp,
-+                color = lampColor.copy(alpha = 0.92f)
-+            )
-+            Spacer(Modifier.height(3.dp))
-+            Text(
-+                text = serverName,
-+                fontFamily = Aero.Display,
-+                fontSize = 27.sp,
-+                color = Aero.Ink
-+            )
++private fun FunctionKeys(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
++    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
++        Tab.entries.forEach { t ->
++            FunctionKey(tab = t, selected = selected == t, onClick = { onSelect(t) })
 +        }
-+        Spacer(Modifier.width(34.dp))
-+        Row(
-+            modifier = Modifier
-+                .focusRequester(startFocus)
-+                .aeroFocus(RoundedCornerShape(50), if (live) Color(0xFFFF9A8A) else Aero.Aqua)
-+                .glossKey(
-+                    RoundedCornerShape(50),
-+                    body = if (live) Color(0xFF3E1A22) else Color(0xFF0F3A3C),
-+                    lit = live
++    }
++}
++
++@Composable
++private fun FunctionKey(tab: Tab, selected: Boolean, onClick: () -> Unit) {
++    val source = remember { MutableInteractionSource() }
++    val focused by source.collectIsFocusedAsState()
++    val lit by animateFloatAsState(
++        if (focused) 1f else 0f,
++        spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
++        label = "fnLit"
++    )
++    val on by animateFloatAsState(
++        if (selected) 1f else 0f,
++        spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
++        label = "fnOn"
++    )
++
++    Column(
++        modifier = Modifier
++            .clickable(interactionSource = source, indication = null, onClick = onClick)
++            .drawBehind {
++                // backlight bleeding through the printed label
++                glow(Offset(size.width / 2f, size.height * 0.42f), size.width * 0.62f, Aero.Aqua, 0.34f * lit)
++                // light guide under the label
++                val barWidth = (16f + 12f * lit).dp.toPx()
++                val y = size.height - 4.dp.toPx()
++                val guide = maxOf(on, 0.35f * lit)
++                glow(Offset(size.width / 2f, y), 14.dp.toPx(), Aero.Aqua, 0.50f * guide)
++                drawRoundRect(
++                    Aero.Aqua.copy(alpha = 0.95f * guide),
++                    topLeft = Offset(size.width / 2f - barWidth / 2f, y - 1.dp.toPx()),
++                    size = Size(barWidth, 2.dp.toPx()),
++                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.dp.toPx())
 +                )
-+                .clickable(onClick = onToggle)
-+                .padding(horizontal = 26.dp, vertical = 14.dp),
-+            verticalAlignment = Alignment.CenterVertically
-+        ) {
-+            Icon(
-+                imageVector = if (live) Icons.Default.Stop else Icons.Default.PlayArrow,
-+                contentDescription = null,
-+                modifier = Modifier.size(19.dp),
-+                tint = Aero.Ink
-+            )
-+            Spacer(Modifier.width(9.dp))
++            }
++            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
++        horizontalAlignment = Alignment.CenterHorizontally
++    ) {
++        val ink = lerp(Aero.InkFaint, Aero.Ink, maxOf(on, lit))
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Icon(tab.icon, contentDescription = null, tint = ink, modifier = Modifier.size(17.dp))
++            Spacer(Modifier.width(8.dp))
 +            Text(
-+                text = (if (live) stringResource(R.string.btn_stop) else stringResource(R.string.btn_start)).uppercase(),
-+                fontFamily = Aero.Readout,
-+                fontSize = 15.sp,
-+                letterSpacing = 2.sp,
-+                color = Aero.Ink
++                text = stringResource(tab.labelRes).uppercase(),
++                fontFamily = Aero.Label,
++                fontSize = 13.sp,
++                letterSpacing = 2.2.sp,
++                color = ink
 +            )
 +        }
 +    }
@@ -1702,10 +2593,10 @@ index 554fe10..c6a66a8 100644
          headlineContent = { Text(title) },
          supportingContent = { Text(description) },
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt b/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt
-index 4f5f226..5bea4b6 100644
+index 4f5f226..ebb9bf2 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/ui/theme/Theme.kt
-@@ -1,28 +1,59 @@
+@@ -1,28 +1,65 @@
  package io.github.jqssun.airplay.ui.theme
  
 -import android.os.Build
@@ -1733,35 +2624,41 @@ index 4f5f226..5bea4b6 100644
 + * text colours and the accent.
 + */
 +
-+private val Amber = Color(0xFFFFB25C)
-+private val AmberDeep = Color(0xFF2A1602)
-+private val Lilac = Color(0xFFC9A7FF)
-+private val Ground = Color(0xFF07060C)
-+private val Panel = Color(0xFF141020)
-+private val PanelHigh = Color(0xFF1E1830)
-+private val Ink = Color(0xFFF4F0FA)
-+private val InkMuted = Color(0xFFCFC6DF)
++private val Aqua = Color(0xFF5FE3F2)
++private val AquaDeep = Color(0xFF032830)
++private val Mint = Color(0xFF8BE6C2)
++private val Night = Color(0xFF03080C)
++private val Ink = Color(0xFFF2FAFF)
++private val InkDim = Color(0xFF9FB7C4)
 +
++// Surfaces are transparent on purpose: the room is drawn behind every screen, and
++// lists and rows should sit in it rather than on grey slabs. Only dialogs, which
++// genuinely float above the room, get a solid smoked surface.
 +private val AirPlayDark = darkColorScheme(
-+    primary = Amber,
-+    onPrimary = AmberDeep,
-+    primaryContainer = Color(0xFF5A3410),
-+    onPrimaryContainer = Color(0xFFFFE0BD),
-+    secondary = Lilac,
-+    onSecondary = Color(0xFF231240),
-+    tertiary = Color(0xFF7BE3C4),
-+    onTertiary = Color(0xFF06281F),
-+    background = Ground,
++    primary = Aqua,
++    onPrimary = AquaDeep,
++    primaryContainer = Color(0xFF0B3A44),
++    onPrimaryContainer = Color(0xFFCFF7FC),
++    secondary = Mint,
++    onSecondary = Color(0xFF06281D),
++    tertiary = Color(0xFF9ED8FF),
++    onTertiary = Color(0xFF062033),
++    background = Color.Transparent,
 +    onBackground = Ink,
-+    surface = Panel,
++    surface = Color.Transparent,
 +    onSurface = Ink,
-+    surfaceVariant = PanelHigh,
-+    onSurfaceVariant = InkMuted,
-+    surfaceContainerHighest = Color(0xFF262036),
-+    outline = Color(0xFF6E6684),
-+    outlineVariant = Color(0xFF3A3350),
-+    error = Color(0xFFFF7A7A),
-+    onError = Color(0xFF3A0A0A),
++    surfaceVariant = Color(0x1AFFFFFF),
++    onSurfaceVariant = InkDim,
++    surfaceContainerLowest = Color.Transparent,
++    surfaceContainerLow = Color.Transparent,
++    surfaceContainer = Color(0xE6071219),
++    surfaceContainerHigh = Color(0xF2081620),
++    surfaceContainerHighest = Color(0xF20A1A24),
++    outline = Color(0xFF3F5663),
++    outlineVariant = Color(0xFF1E2E37),
++    error = Color(0xFFFFB38A),
++    onError = Color(0xFF3A1706),
++    scrim = Night,
 +)
  
  @Composable
@@ -3279,13 +4176,17 @@ index cb3af28..83e6796 100644
 +        android:strokeLineCap="round" android:pathData="M68,80 L68,66" />
  </vector>
 diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
-index 9a17a5d..efabce2 100644
+index 9a17a5d..394cb2d 100644
 --- a/app/src/main/res/values/strings.xml
 +++ b/app/src/main/res/values/strings.xml
-@@ -25,6 +25,10 @@
+@@ -25,6 +25,14 @@
      <string name="stopped_label">Stopped</string>
      <string name="btn_start">Start</string>
      <string name="btn_stop">Stop</string>
++    <string name="status_connected">Connected</string>
++    <string name="status_listening">Listening</string>
++    <string name="status_device_one">1 device</string>
++    <string name="status_device_many">%1$d devices</string>
 +    <string name="lyrics_title">Lyrics</string>
 +    <string name="lyrics_loading">Looking for lyrics…</string>
 +    <string name="lyrics_none">No lyrics found for this track</string>
