@@ -171,8 +171,10 @@ you can just start it from there.
 
 ## Optional — Build the app yourself instead
 
-Only worth it if you want your own signing key or a build you can audit line by
-line. It downloads a full Android toolchain and takes a while.
+Only worth it if you want your own signing key, a build you can audit line by
+line, or the fixes listed under
+[Patches in this repository](#patches-in-this-repository). It downloads a full
+Android toolchain and takes a while.
 
 ```powershell
 .\scripts\01-setup-toolchain.ps1 -AcceptSdkLicenses
@@ -265,11 +267,20 @@ defaults to on, and its own description states that with it off, videos arrive a
 audio-only streams.
 
 So if you get sound with a black picture, check that switch first. If it is
-already on, the handoff is happening but the receiver cannot fetch the stream by
-itself. That is common on sites whose media URLs only work from inside the browser
-session, because they check the referrer or carry a one-time token. Keep such a
-video out of fullscreen and it stays part of the mirrored screen: play it inline
-and turn the phone to landscape instead of tapping the fullscreen button.
+already on, the handoff is happening but the receiver fails to play the stream by
+itself. There are two usual reasons.
+
+The site serves its playlist from an address without a `.m3u8` ending, such as
+`https://host/file/abc/`. Safari plays that natively and hands the address over
+unchanged, but the receiver's player picks the stream type from the ending alone,
+takes the playlist for a plain video file and gives up. The build from source
+fixes this, see [Patches in this repository](#patches-in-this-repository). The
+prebuilt app does not contain the fix.
+
+Or the media URLs only work from inside the browser session, because they check
+the referrer or carry a one-time token. Keep such a video out of fullscreen and it
+stays part of the mirrored screen: play it inline and turn the phone to landscape
+instead of tapping the fullscreen button.
 
 **For anything else that fails**, run the diagnostic in the next section. It tells
 a protected stream apart from a real bug.
@@ -332,11 +343,15 @@ its patches against UxPlay, so the submodule itself stays untouched.
 
 | Patch | What it changes |
 |---|---|
-| `0001-send-browser-headers-for-media-fetches.patch` | The receiver fetched handed-over video URLs with the stock data source: no referrer, no browser user agent, no cross-protocol redirects. Video hosters reject that, which showed up as sound without a picture. It now sends a Safari user agent, a referrer derived from the media origin, and follows http to https redirects. |
+| `0001-play-handed-over-video-urls.patch` | Two fixes for video URLs a sender hands over, both of which showed up as sound without a picture. The receiver fetched them with the stock data source: no referrer, no browser user agent, no cross-protocol redirects, which video hosters reject. It now sends a Safari user agent, a referrer derived from the media origin, and follows http to https redirects. And the player chose between a plain file and an HLS playlist by the URL's file ending alone, so a playlist served from an address without `.m3u8` was never recognised. A stream that fails that way is now tried once more as HLS. |
 | `0002-retry-dacp-resolution.patch` | Skip, pause and volume reach the sending device over DACP, whose address is found by mDNS. That lookup ran exactly once, and mDNS on Fire OS fails often, after which every transport key died silently for the rest of the session. It now retries with a backoff and looks the address up again on the next key press. |
 
 These only affect the build-from-source path. The prebuilt APK is upstream's own
 release and does not contain them.
+
+Everything that changes one file belongs in one patch. The build resets each file
+a patch touches before applying it, so a second patch on the same file would wipe
+out the first.
 
 ### Building on Windows
 
