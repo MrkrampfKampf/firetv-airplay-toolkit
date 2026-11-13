@@ -158,9 +158,10 @@ nächsten Mal kannst du sie einfach von dort starten.
 
 ## Optional — Die App selbst bauen
 
-Lohnt nur, wenn du einen eigenen Signaturschlüssel willst oder einen Build, den du
-Zeile für Zeile nachvollziehen kannst. Dabei wird eine komplette Android-Toolchain
-geladen, das dauert.
+Lohnt nur, wenn du einen eigenen Signaturschlüssel willst, einen Build, den du
+Zeile für Zeile nachvollziehen kannst, oder die eigenen Korrekturen aus dem Ordner
+`patches/app` brauchst, die es nur in der selbst gebauten App gibt. Dabei wird eine
+komplette Android-Toolchain geladen, das dauert.
 
 ```powershell
 .\scripts\01-setup-toolchain.ps1 -AcceptSdkLicenses
@@ -255,12 +256,21 @@ er an, und seine eigene Beschreibung sagt, dass Videos bei ausgeschaltetem Schal
 nur als Tonstrom ankommen.
 
 Bei Ton ohne Bild also zuerst diesen Schalter prüfen. Ist er schon an, findet die
-Übergabe statt, aber der Empfänger kann den Stream nicht selbst abrufen. Das ist
-häufig bei Seiten, deren Medienadressen nur innerhalb der Browsersitzung
-funktionieren, weil sie den Referrer prüfen oder ein einmaliges Token tragen. Halte
-so ein Video aus dem Vollbild heraus, dann bleibt es Teil des gespiegelten Bildes:
-im Seitenlayout abspielen und das Handy quer drehen statt den Vollbildknopf zu
-tippen.
+Übergabe statt, aber der Empfänger kann den Stream nicht selbst abspielen. Dafür
+gibt es zwei übliche Gründe.
+
+Die Seite liefert ihre Playlist unter einer Adresse ohne die Endung `.m3u8` aus,
+etwa `https://host/file/abc/`. Safari spielt das von sich aus ab und übergibt die
+Adresse unverändert, der Player im Empfänger erkennt die Art des Streams aber nur
+an der Endung, hält die Playlist für eine gewöhnliche Videodatei und gibt auf. Die
+selbst gebaute App behebt das, siehe
+[Optional — Die App selbst bauen](#optional--die-app-selbst-bauen). In der fertig
+heruntergeladenen App fehlt die Korrektur.
+
+Oder die Medienadressen funktionieren nur innerhalb der Browsersitzung, weil die
+Seite den Referrer prüft oder ein einmaliges Token vergibt. Halte so ein Video aus
+dem Vollbild heraus, dann bleibt es Teil des gespiegelten Bildes: im Seitenlayout
+abspielen und das Handy quer drehen statt den Vollbildknopf zu tippen.
 
 **Für alles andere, was scheitert**, führ die Diagnose im nächsten Abschnitt aus.
 Sie unterscheidet einen geschützten Stream von einem echten Fehler.

@@ -1,8 +1,14 @@
 diff --git a/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt b/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt
-index 83b795e..53e9ecc 100644
+index 83b795e..4e26150 100644
 --- a/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt
 +++ b/app/src/main/kotlin/io/github/jqssun/airplay/renderer/AirPlayVideoPlayer.kt
-@@ -12,7 +12,10 @@ import androidx.media3.common.PlaybackParameters
+@@ -8,11 +8,16 @@ import android.view.Surface
+ import androidx.media3.common.C
+ import androidx.media3.common.MediaItem
+ import androidx.media3.common.MediaMetadata
++import androidx.media3.common.MimeTypes
++import androidx.media3.common.PlaybackException
+ import androidx.media3.common.PlaybackParameters
  import androidx.media3.common.Player
  import androidx.media3.common.Timeline
  import androidx.media3.common.VideoSize
@@ -13,18 +19,40 @@ index 83b795e..53e9ecc 100644
  
  // rate is 0 while buffering; speed is the configured rate regardless of pause state
  // native reads the effective rate, overlay reads playWhenReady + speed + skipSilence
-@@ -48,7 +51,8 @@ class AirPlayVideoPlayer(private val context: Context) {
+@@ -34,6 +39,11 @@ class AirPlayVideoPlayer(private val context: Context) {
+     private var player: ExoPlayer? = null
+     private var pendingSurface: Surface? = null
+ 
++    // what the current player was started with, kept for the hls retry
++    private var location: String? = null
++    private var startPositionMs = 0L
++    private var startedAsHls = false
++
+     var onPlaybackInfo: ((PlaybackSnapshot) -> Unit)? = null
+     var onVideoSize: ((width: Int, height: Int, aspect: Float) -> Unit)? = null
+     var onTitle: ((String?) -> Unit)? = null
+@@ -47,8 +57,10 @@ class AirPlayVideoPlayer(private val context: Context) {
+     }
  
      private val _listener = object : Player.Listener {
-         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+-        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
 -            Log.w(TAG, "playback error", error)
++        override fun onPlayerError(error: PlaybackException) {
 +            // the code name is what tells a refused fetch apart from a decoder fault
 +            Log.w(TAG, "playback error ${error.errorCodeName}", error)
++            if (_retryAsHls(error)) return
              onEnded?.invoke()
          }
          override fun onPlaybackStateChanged(state: Int) {
-@@ -71,7 +75,9 @@ class AirPlayVideoPlayer(private val context: Context) {
+@@ -69,20 +81,83 @@ class AirPlayVideoPlayer(private val context: Context) {
+     }
+ 
      fun play(location: String, startPositionSeconds: Float) = mainHandler.post {
++        _start(location, (startPositionSeconds * 1000).toLong(), asHls = false)
++        onPlaybackInfo?.invoke(PlaybackSnapshot(startPositionSeconds, 0f, 0f, false, true))
++    }
++
++    private fun _start(location: String, startPositionMs: Long, asHls: Boolean) {
          // recycling must not report the stopped sentinel: senders poll right after /play
          _stopInternal(reportStopped = false)
 -        val p = ExoPlayer.Builder(context).build().also {
@@ -34,10 +62,41 @@ index 83b795e..53e9ecc 100644
              it.addListener(_listener)
              pendingSurface?.let { s -> it.setVideoSurface(s) }
          }
-@@ -83,6 +89,37 @@ class AirPlayVideoPlayer(private val context: Context) {
+         player = p
+-        p.setMediaItem(MediaItem.fromUri(location), (startPositionSeconds * 1000).toLong())
++        this.location = location
++        this.startPositionMs = startPositionMs
++        startedAsHls = asHls
++        val item = MediaItem.Builder().setUri(location)
++        if (asHls) item.setMimeType(MimeTypes.APPLICATION_M3U8)
++        p.setMediaItem(item.build(), startPositionMs)
+         p.playWhenReady = true
+         p.prepare()
+-        onPlaybackInfo?.invoke(PlaybackSnapshot(startPositionSeconds, 0f, 0f, false, true))
          mainHandler.postDelayed(_reportTick, REPORT_INTERVAL_MS)
      }
  
++    // ExoPlayer decides between a plain file and an hls playlist by the url's file
++    // extension alone. Hosters serve playlists from urls without one, such as
++    // https://host/file/<id>/, which Safari plays natively and hands over as is. Here
++    // the playlist then went to the file extractors, none of them recognised it, and
++    // playback ended before it began while the sender fell back to sound only. Hls is
++    // the only playlist format an Apple sender hands over, so an unrecognised
++    // container is tried once more as hls before giving up.
++    private fun _retryAsHls(error: PlaybackException): Boolean {
++        if (error.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) return false
++        val failed = player ?: return false
++        val location = location ?: return false
++        if (startedAsHls) return false
++        Log.i(TAG, "container not recognised, retrying as hls")
++        // posted, so the player is not released from inside its own callback. A stop
++        // or a newer play that got in first has replaced the player and wins.
++        mainHandler.post {
++            if (player === failed) _start(location, startPositionMs, asHls = true)
++        }
++        return true
++    }
++
 +    // Senders hand over a bare url and the receiver fetches it itself, without the
 +    // cookies, referrer or user agent of the browser session that produced it. Video
 +    // hosters routinely reject that: they gate on the user agent, require a referrer
@@ -72,7 +131,7 @@ index 83b795e..53e9ecc 100644
      fun scrub(positionSeconds: Float) = mainHandler.post {
          player?.seekTo((positionSeconds * 1000).toLong())
      }
-@@ -181,5 +218,12 @@ class AirPlayVideoPlayer(private val context: Context) {
+@@ -181,5 +256,12 @@ class AirPlayVideoPlayer(private val context: Context) {
      companion object {
          private const val TAG = "AirPlayVideoPlayer"
          private const val REPORT_INTERVAL_MS = 250L
